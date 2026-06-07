@@ -1,0 +1,2445 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>FishFight</title>
+<script>
+(function(){
+  const isMobile=/Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent);
+  const isMobileBuild=location.pathname.toLowerCase().includes("fishfight-mobile-full.html");
+  if(isMobile && !isMobileBuild && !location.search.includes("desktop=1")){
+    location.replace("fishfight-mobile-full.html");
+  }
+})();
+</script>
+<style>
+/* Base */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;overflow:hidden;background:#020617;font-family:Arial,sans-serif;touch-action:none}
+body{color:#fff}
+canvas{display:block}
+button,input{font:inherit}
+button{cursor:pointer}
+
+/* In-game HUD */
+#ui,#leaderboard,#minimap{position:fixed;z-index:10;user-select:none}
+#ui{top:12px;left:12px;padding:14px 18px;border-radius:20px;background:rgba(3,12,28,.56);font-size:18px}
+#leaderboard{top:12px;right:12px;width:190px;padding:14px 16px;border-radius:26px;background:rgba(3,12,28,.56)}
+#leaderboardTitle{font-size:18px;font-weight:700;color:#7dd3fc;margin-bottom:8px}
+#leaderboardList{margin:0;padding-left:24px}
+#leaderboardList li{margin:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#minimap{top:76px;left:12px;width:160px;height:160px;border-radius:18px;background:rgba(3,12,28,.66);border:2px solid rgba(255,255,255,.35)}
+
+/* Mobile controls */
+#joystickBase{position:fixed;left:28px;bottom:28px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.16);border:2px solid rgba(255,255,255,.35);z-index:15;display:none;touch-action:none}
+#joystickStick{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(56,189,248,.9);border:2px solid #fff}
+#actionButtons{position:fixed;right:24px;bottom:28px;display:none;gap:14px;align-items:flex-end;z-index:15}
+.actionBtn{width:76px;height:76px;border:none;border-radius:50%;font-weight:700;font-size:13px;color:#06121f;background:rgba(56,189,248,.88);border:2px solid rgba(255,255,255,.8);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.actionBtn.small{width:64px;height:64px;background:rgba(250,204,21,.92)}
+
+/* Shared overlays */
+#menu,#gameOver{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:20px 24px 28px;overflow:hidden}
+#gameOver{display:none;justify-content:center;background:linear-gradient(180deg,rgba(2,8,23,.92),rgba(1,4,12,.96))}
+.menuPage{width:100%;max-width:1100px;position:relative;z-index:2}
+.menuPage.hidden{display:none}
+
+/* Home screen */
+#menu{background:linear-gradient(180deg,#021122,#020617)}
+.menuBackdrop{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+}
+.menuBackdrop::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(2,8,23,.08),rgba(2,8,23,.24));
+}
+.menuBackdrop img{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  object-position:center center;
+}
+.homeStage{
+  width:100%;
+  max-width:1280px;
+  min-height:calc(100vh - 48px);
+  display:grid;
+  grid-template-columns:1fr;
+  grid-template-rows:1fr;
+  gap:0;
+  align-items:center;
+}
+.homeTitle{
+  display:none;
+}
+.modePanel{
+  align-self:center;
+  justify-self:start;
+  display:flex;
+  flex-direction:column;
+  gap:22px;
+  width:min(35vw,320px);
+  min-width:170px;
+  margin-left:clamp(18px,4vw,52px);
+  margin-top:clamp(40px,10vh,130px);
+  z-index:3;
+}
+.modeBtn{
+  width:100%;
+  margin:0;
+  padding:18px 20px;
+  border:none;
+  border-radius:24px;
+  text-align:left;
+  font-size:clamp(18px,2vw,24px);
+  font-weight:900;
+  color:#fff;
+  border:3px solid rgba(255,255,255,.78);
+  box-shadow:0 9px 0 rgba(4,15,37,.82),0 18px 34px rgba(4,15,37,.32);
+  text-shadow:0 2px 0 rgba(0,0,0,.42);
+  position:relative;
+  transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;
+  z-index:3;
+}
+.modeBtn::before{
+  content:"";
+  position:absolute;
+  inset:4px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.22);
+  pointer-events:none;
+}
+.modeBtn.primary{background:linear-gradient(180deg,#8bf13a,#56be19 48%,#2f8d10 100%)}
+.modeBtn.secondary{background:linear-gradient(180deg,#76d8ff,#2f8fff 48%,#1f61d7 100%)}
+.modeBtn.tertiary{background:linear-gradient(180deg,#5d6f94,#2e4166 48%,#1d2c47 100%)}
+.modeBtn:hover{transform:translateY(-2px);box-shadow:0 11px 0 rgba(4,15,37,.82),0 22px 38px rgba(4,15,37,.36);filter:brightness(1.04)}
+.modeBtn:active{transform:translateY(4px) scale(.985);box-shadow:0 5px 0 rgba(4,15,37,.82),0 10px 22px rgba(4,15,37,.28)}
+.menuPanel{
+  max-width:760px;
+  margin-top:22px;
+  padding:22px 24px 26px;
+  border-radius:26px;
+  background:linear-gradient(180deg,rgba(8,18,34,.48),rgba(6,14,28,.54));
+  border:1px solid rgba(255,255,255,.10);
+  backdrop-filter:blur(8px);
+  box-shadow:0 18px 50px rgba(0,0,0,.24);
+  overflow-y:auto;
+  max-height:calc(100vh - 90px);
+}
+.centerMenuWrap{
+  width:100%;
+  min-height:calc(100vh - 48px);
+  max-height:calc(100vh - 48px);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:24px 0;
+  overflow-y:auto;
+}
+.singlePlayerPanel{
+  width:min(760px,92vw);
+  max-height:calc(100vh - 116px);
+  overflow-y:auto;
+  padding:26px 28px 30px;
+  border-radius:30px;
+  background:linear-gradient(180deg,rgba(7,18,35,.38),rgba(7,18,35,.48));
+  border:1px solid rgba(255,255,255,.08);
+  backdrop-filter:blur(8px);
+  box-shadow:0 18px 46px rgba(0,0,0,.20);
+}
+.singlePlayerHeader{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  margin-bottom:20px;
+}
+.singlePlayerHeader h2{
+  margin:0;
+  font-size:64px;
+  line-height:1;
+  text-align:center;
+}
+.singlePlayerBack{
+  position:absolute;
+  left:0;
+  top:50%;
+  transform:translateY(-50%);
+}
+.singlePlayerSection{
+  margin-top:18px;
+}
+.singlePlayerLabel{
+  display:block;
+  margin-bottom:10px;
+  font-size:15px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  opacity:.88;
+}
+.singlePlayerName{
+  width:100%;
+  padding:16px 18px;
+  border-radius:999px;
+  border:2px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.10);
+  color:#fff;
+  text-align:center;
+  outline:none;
+}
+.singlePlayerName::placeholder{color:rgba(255,255,255,.62)}
+.simpleSkinRow,.simpleMapRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+}
+.simpleSkin{
+  width:60px;
+  height:60px;
+  min-width:60px;
+  border-radius:50%;
+  border:3px solid rgba(255,255,255,.42);
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.18);
+}
+.simpleMapCard{
+  flex:1 1 150px;
+  min-height:82px;
+  padding:14px 16px;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  text-align:left;
+  box-shadow:none;
+}
+.simpleMapCard .mapCardName{
+  display:block;
+  margin-bottom:4px;
+}
+.simpleStart{
+  margin-top:24px;
+  width:100%;
+  max-width:260px;
+}
+.homeSpacer{min-height:1px}
+
+/* Collection / settings page */
+.collectionHeader{display:flex;gap:16px;align-items:center;margin-bottom:18px}
+.backBtn{
+  margin:0;
+  padding:12px 18px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(255,255,255,.12);
+  color:#fff;
+}
+.collectionHeader h2{margin:0;font-size:32px}
+.collectionHeader p{margin:4px 0 0;opacity:.82}
+.collectionInfo{
+  max-width:720px;
+  margin-bottom:18px;
+  padding:18px 20px;
+  border-radius:20px;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.16);
+}
+.collectionInfoBadge{
+  display:inline-block;
+  margin-bottom:10px;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:12px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#7dd3fc;
+  background:rgba(56,189,248,.16);
+}
+.collectionInfoTitle{font-size:20px;font-weight:700;margin-bottom:6px}
+.collectionInfoText,.collectionInfoProgress{font-size:14px;line-height:1.45}
+.collectionInfoProgress{margin-top:8px;color:#facc15}
+.skinTitle{margin:18px 0 8px;font-size:15px;font-weight:700;opacity:.94}
+
+/* Carousels */
+.customCarousel{display:flex;align-items:center;gap:8px;width:100%;max-width:420px}
+.customViewport{width:260px;height:54px;overflow:hidden}
+.customTrack{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;transition:transform .22s ease;will-change:transform}
+.carouselBtn{
+  width:30px;
+  height:42px;
+  margin:0;
+  padding:0;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.35);
+  background:rgba(255,255,255,.16);
+  color:#fff;
+  font-size:25px;
+  line-height:1;
+}
+.carouselBtn.hidden{visibility:hidden}
+.colorSkin,.logoSkin,.nameColorSkin{
+  width:44px;
+  height:44px;
+  min-width:44px;
+  flex:0 0 44px;
+  border-radius:50%;
+  border:3px solid rgba(255,255,255,.45);
+  overflow:hidden;
+  background-size:cover;
+  background-position:center;
+}
+.skinSelected{border-color:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.35)}
+.emptyPremium{background:radial-gradient(circle,#64748b,#1e293b)}
+.emptyPremium::after{content:"+";display:flex;align-items:center;justify-content:center;height:100%;font-size:22px;font-weight:700;color:rgba(255,255,255,.72)}
+
+/* Card grids */
+.skinGrid{width:100%;max-width:720px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.skinCard{
+  position:relative;
+  min-height:110px;
+  padding:12px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  text-align:center;
+  transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease;
+}
+.skinCard:hover,.skinCard:focus-visible{
+  transform:translateY(-2px);
+  border-color:rgba(125,211,252,.7);
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.skinCard.unlocked{border-color:rgba(34,197,94,.7);box-shadow:0 0 0 2px rgba(34,197,94,.16) inset}
+.cardIcon{font-size:22px;line-height:1}
+.cardLabel{font-size:13px;font-weight:700;line-height:1.2}
+.cardState{font-size:12px;opacity:.82}
+.mapCardName{font-size:17px;font-weight:700}
+.mapCardState{font-size:12px;opacity:.85}
+.fishSkinRow{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:flex-start;}
+.fishTypeBtn{border-radius:22px;min-height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px 16px;text-align:center;white-space:normal;min-width:150px;flex:1 1 180px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);}
+.fishTypeBtn img{width:72px;height:72px;object-fit:contain;}
+.fishTypeBtn span{display:block;font-size:14px;line-height:1.2;}
+.fishTypeBtn.skinSelected{border-color:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.35)}
+.mapGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:stretch;}
+.mapGrid .mapCard{flex:unset;min-height:190px;padding:18px 18px;display:flex;flex-direction:column;justify-content:space-between;}
+.mapGrid .mapCard[data-map="reef"]{background-image:linear-gradient(180deg,rgba(103,232,249,.35),rgba(15,23,42,.92)),url("assets/reef-background.png");background-size:contain;background-repeat:no-repeat;background-position:top center;}
+.mapGrid .mapCard[data-map="scrap"]{background:linear-gradient(180deg,rgba(251,191,36,.18),rgba(31,41,55,.55))}
+.mapGrid .mapCard[data-map="ember"]{background:linear-gradient(180deg,rgba(248,113,113,.16),rgba(59,7,7,.55))}
+
+.centerMenuWrap{max-height:calc(100vh - 48px);overflow-y:auto;}
+.singlePlayerPanel{max-height:calc(100vh - 116px);overflow-y:auto;}
+
+/* Toggles / preview */
+.menuSettings{display:flex;gap:16px;align-items:center;margin-top:4px}
+.iconToggle{
+  width:54px;
+  height:54px;
+  margin:0;
+  padding:0;
+  border:none;
+  border-radius:50%;
+  background:rgba(255,255,255,.14);
+  border:2px solid rgba(255,255,255,.35);
+  color:#fff;
+  font-size:24px;
+}
+.iconToggle.active{background:#38bdf8;color:#06121f;border-color:#fff;box-shadow:0 0 0 3px rgba(56,189,248,.25)}
+#previewCanvas{display:block;width:180px;height:180px;margin-top:8px;background:transparent}
+
+/* Popups */
+.popupOverlay{
+  position:fixed;
+  inset:0;
+  z-index:50;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(0,0,0,.68);
+}
+.popupBox{
+  position:relative;
+  width:min(340px,90vw);
+  padding:24px 20px 20px;
+  border-radius:22px;
+  background:linear-gradient(180deg,#1e293b,#020617);
+  border:2px solid rgba(255,255,255,.22);
+  box-shadow:0 18px 45px rgba(0,0,0,.55);
+  text-align:center;
+}
+.popupClose{
+  position:absolute;
+  top:10px;
+  right:12px;
+  width:34px;
+  height:34px;
+  margin:0;
+  padding:0;
+  border:none;
+  border-radius:50%;
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  font-size:24px;
+}
+.popupIcon{
+  width:78px;
+  height:78px;
+  margin:0 auto 10px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:34px;
+  background:radial-gradient(circle,#475569,#0f172a);
+  border:3px solid rgba(250,204,21,.7);
+}
+.popupBox h2{margin:8px 0;font-size:25px}
+.popupBox p{margin:8px auto 12px;line-height:1.45}
+.popupBox strong{color:#7dd3fc}
+
+/* Game over */
+#gameOver h1{margin:0 0 12px;font-size:44px}
+#gameOver p{margin:4px 0}
+#gameOver button{margin-top:18px;margin-right:10px;padding:14px 24px;border:none;border-radius:999px;background:#38bdf8;color:#06121f;font-weight:700}
+
+/* Responsive */
+@media(max-width:700px){
+  #leaderboard{width:155px;font-size:12px}
+  #minimap{width:130px;height:130px}
+  #menu{padding:12px 14px 18px}
+  .menuBackdrop img{object-position:center top}
+  .homeStage{grid-template-columns:1fr;grid-template-rows:1fr;gap:0;text-align:left}
+  .modePanel{
+    width:min(35vw,240px);
+    min-width:145px;
+    justify-self:start;
+    margin-left:14px;
+    margin-top:22px;
+    gap:14px;
+  }
+  .modeBtn{
+    text-align:left;
+    font-size:16px;
+    padding:14px 14px;
+    border-radius:18px;
+  }
+  .modeBtn::before{border-radius:12px}
+  .menuPanel{
+    margin-top:8px;
+    max-height:calc(100vh - 48px);
+    padding:18px 16px 22px;
+  }
+  .centerMenuWrap{
+    min-height:calc(100vh - 24px);
+    padding:12px 0;
+  }
+  .singlePlayerPanel{
+    width:min(94vw,760px);
+    padding:18px 16px 22px;
+    border-radius:24px;
+  }
+  .singlePlayerHeader{
+    padding-top:44px;
+    margin-bottom:16px;
+  }
+  .singlePlayerHeader h2{
+    font-size:38px;
+  }
+  .singlePlayerBack{
+    top:0;
+    left:0;
+    transform:none;
+    position:absolute;
+  }
+  .simpleSkin{
+    width:54px;
+    height:54px;
+    min-width:54px;
+  }
+  .simpleMapCard{
+    flex:1 1 100%;
+  }
+  .simpleStart{
+    max-width:none;
+  }
+}
+</style>
+</head>
+<body>
+<div id="ui">Massa: <span id="massText">20</span></div>
+<div id="leaderboard">
+  <div id="leaderboardTitle">Top 10</div>
+  <ol id="leaderboardList"></ol>
+</div>
+<canvas id="minimap" width="185" height="185"></canvas>
+
+<div id="menu">
+  <div class="menuBackdrop">
+    <img src="assets/mainscreen.png" alt="FishFight menu background" />
+  </div>
+  <div id="menuHome" class="menuPage">
+    <div class="homeStage">
+      <h1 class="homeTitle">Fish<span class="accent">Fight</span></h1>
+      <div class="modePanel">
+        <button id="singlePlayerBtn" class="modeBtn primary" type="button">Single Player</button>
+        <button id="multiplayerBtn" class="modeBtn secondary" type="button">Multiplayer</button>
+        <button id="settingsBtn" class="modeBtn tertiary" type="button">Settings</button>
+      </div>
+      <div class="homeSpacer"></div>
+    </div>
+  </div>
+
+  <div id="collectionPage" class="menuPage hidden">
+    <div class="centerMenuWrap">
+      <div class="singlePlayerPanel">
+        <div class="singlePlayerHeader">
+          <button id="backToHomeBtn" class="backBtn singlePlayerBack" type="button">&lt;- Terug</button>
+          <h2>Single Player</h2>
+        </div>
+
+        <div class="singlePlayerSection">
+          <label class="singlePlayerLabel" for="nameInput">Naam</label>
+          <input id="nameInput" class="singlePlayerName" maxlength="14" placeholder="Vul je naam in" />
+        </div>
+
+        <div class="singlePlayerSection">
+          <span class="singlePlayerLabel">Skins</span>
+  <div class="fishSkinRow">
+            <button class="fishSkinBtn skinSelected fishTypeBtn" type="button" data-fish-type="pufferfish" data-title="Pufferfish">
+              <img src="assets/pufferfish/mutation 1.png" alt="Pufferfish mutation 1" />
+              <span>Pufferfish</span>
+            </button>
+            <button class="fishSkinBtn fishTypeBtn" type="button" data-fish-type="clownfish" data-title="Clownfish">
+              <img src="assets/clownfishes/mutation 1.png" alt="Clownfish mutation 1" />
+              <span>Clownfish</span>
+            </button>
+            <button class="fishSkinBtn fishTypeBtn" type="button" data-fish-type="hengelaar" data-title="Hengelaar">
+              <img src="assets/hengelaarsvis/mutation 1.png" alt="Hengelaar mutation 1" />
+              <span>Hengelaar</span>
+            </button>
+            <button class="fishSkinBtn fishTypeBtn" type="button" data-fish-type="shark" data-title="Shark">
+              <img src="assets/shark/shark mutation 1.png" alt="Shark mutation 1" />
+              <span>Shark</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="singlePlayerSection">
+          <span class="singlePlayerLabel">Map</span>
+          <div class="simpleMapRow mapGrid">
+            <button class="simpleMapCard mapCard skinSelected" type="button" data-map="reef" data-title="Coral Reef" data-requirement="Unlocked from the start"><span class="mapCardName">Coral Reef</span><span class="mapCardState">Open</span></button>
+            <button class="simpleMapCard mapCard" type="button" data-map="scrap" data-title="Scrap Yard" data-requirement="Reach a highest mass of 200 to unlock"><span class="mapCardName">Scrap Yard</span><span class="mapCardState">Locked</span></button>
+            <button class="simpleMapCard mapCard" type="button" data-map="ember" data-title="Ember Canyon" data-requirement="Eat 50 enemies to unlock"><span class="mapCardName">Ember Canyon</span><span class="mapCardState">Locked</span></button>
+          </div>
+        </div>
+
+        <button class="modeBtn primary simpleStart" type="button" onclick="startGame()">Start</button>
+
+        <div class="collectionInfo" style="display:none">
+          <div class="collectionInfoBadge">Details</div>
+          <div id="collectionInfoTitle" class="collectionInfoTitle">Beweeg over een item</div>
+          <div id="collectionInfoText" class="collectionInfoText">Je ziet hier de opdracht, status en voortgang.</div>
+          <div id="collectionInfoProgress" class="collectionInfoProgress"></div>
+        </div>
+        <canvas id="previewCanvas" width="180" height="180" style="display:block;margin:16px auto 0;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="multiplayerPage" class="menuPage hidden menuPanel">
+    <div class="collectionHeader">
+      <button class="backBtn" type="button" onclick="showMainMenu()">&lt;- Terug</button>
+      <div>
+        <h2>Multiplayer</h2>
+        <p>Dit scherm staat klaar voor later. Hier komt je online menu.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsPage" class="menuPage hidden menuPanel">
+    <div class="collectionHeader">
+      <button class="backBtn" type="button" onclick="showMainMenu()">&lt;- Terug</button>
+      <div>
+        <h2>Settings</h2>
+        <p>Hier kan later je aparte instellingenmenu komen.</p>
+      </div>
+    </div>
+    <div class="menuSettings">
+      <button id="settingsMusicBtn" class="iconToggle" type="button">S</button>
+      <button id="settingsVibrationBtn" class="iconToggle active" type="button">V</button>
+    </div>
+  </div>
+</div>
+
+<div id="gameOver">
+  <h1>Game Over</h1>
+  <p>Je bent uitgeschakeld door een sterkere tegenstander.</p>
+  <p>Score: <span id="finalScore">0</span></p>
+  <p>Hoogste massa: <span id="finalMaxMass">0</span></p>
+  <p>Kills: <span id="finalKills">0</span></p>
+  <p>Tijd overleefd: <span id="finalSurvivalTime">0s</span></p>
+  <p>Beste ranking: #<span id="finalBestRank">-</span></p>
+  <div>
+    <button type="button" onclick="startGame()">Opnieuw spelen</button>
+    <button type="button" onclick="returnToMenu()">Hoofdscherm</button>
+  </div>
+</div>
+
+<div id="unlockPopup" class="popupOverlay">
+  <div class="popupBox">
+    <button id="popupClose" class="popupClose" type="button">x</button>
+    <div class="popupIcon">?</div>
+    <h2 id="popupTitle">Locked Skin</h2>
+    <p id="popupText">Complete the challenge to unlock this skin.</p>
+    <button id="popupOk" class="modeBtn secondary" style="max-width:180px;margin:10px auto 0" type="button">OK</button>
+  </div>
+</div>
+
+<div id="joystickBase"><div id="joystickStick"></div></div>
+<div id="actionButtons">
+  <button id="fireBtn" class="actionBtn small">FIRE</button>
+  <button id="splitBtn" class="actionBtn">SPLIT</button>
+</div>
+<canvas id="game"></canvas>
+
+<script>
+/* -------------------------------------------------------------------------- */
+/* DOM references                                                             */
+/* -------------------------------------------------------------------------- */
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const minimap=document.getElementById("minimap");
+const miniCtx=minimap.getContext("2d");
+
+const massText=document.getElementById("massText");
+const leaderboardList=document.getElementById("leaderboardList");
+
+const menu=document.getElementById("menu");
+const menuHome=document.getElementById("menuHome");
+const collectionPage=document.getElementById("collectionPage");
+const multiplayerPage=document.getElementById("multiplayerPage");
+const settingsPage=document.getElementById("settingsPage");
+const singlePlayerBtn=document.getElementById("singlePlayerBtn");
+const multiplayerBtn=document.getElementById("multiplayerBtn");
+const settingsBtn=document.getElementById("settingsBtn");
+const backToHomeBtn=document.getElementById("backToHomeBtn");
+const nameInput=document.getElementById("nameInput");
+
+const collectionInfoTitle=document.getElementById("collectionInfoTitle");
+const collectionInfoText=document.getElementById("collectionInfoText");
+const collectionInfoProgress=document.getElementById("collectionInfoProgress");
+
+const previewCanvas=document.getElementById("previewCanvas");
+const previewCtx=previewCanvas.getContext("2d");
+
+const musicIconBtn=document.getElementById("musicIconBtn");
+const vibrationIconBtn=document.getElementById("vibrationIconBtn");
+const settingsMusicBtn=document.getElementById("settingsMusicBtn");
+const settingsVibrationBtn=document.getElementById("settingsVibrationBtn");
+
+const gameOverScreen=document.getElementById("gameOver");
+const finalScore=document.getElementById("finalScore");
+const finalMaxMass=document.getElementById("finalMaxMass");
+const finalKills=document.getElementById("finalKills");
+const finalSurvivalTime=document.getElementById("finalSurvivalTime");
+const finalBestRank=document.getElementById("finalBestRank");
+
+const unlockPopup=document.getElementById("unlockPopup");
+const popupClose=document.getElementById("popupClose");
+const popupOk=document.getElementById("popupOk");
+const popupTitle=document.getElementById("popupTitle");
+const popupText=document.getElementById("popupText");
+
+const joystickBase=document.getElementById("joystickBase");
+const joystickStick=document.getElementById("joystickStick");
+const actionButtons=document.getElementById("actionButtons");
+const splitBtn=document.getElementById("splitBtn");
+const fireBtn=document.getElementById("fireBtn");
+
+/* -------------------------------------------------------------------------- */
+/* Config and constants                                                       */
+/* -------------------------------------------------------------------------- */
+const CONFIG={
+  BOT_COUNT:40,
+  FOOD_COUNT:700,
+  VIRUS_COUNT:18,
+  VIRUS_MASS:60,
+  EAT_RATIO:1.15,
+  WORLD_WIDTH:4200,
+  WORLD_HEIGHT:3600,
+  START_MASS:20
+};
+
+const SPLIT_TUNING={
+  MAX_PARTS:16,
+  MIN_MASS:30,
+  LAUNCH_SPEED:14,
+  LAUNCH_DISTANCE:1.75,
+  MERGE_TIMER:240
+};
+
+const MAP_STORAGE_KEY="fishfight_map_v1";
+const UNLOCK_STORAGE_KEY="fishfight_unlocks_v1";
+const HAZARD_RESPAWN_MARGIN=200;
+
+const MAP_DEFS={
+  reef:{
+    label:"Coral Reef",
+    world:{width:4200,height:3600},
+    bgA:"#04111f",
+    bgB:"#0f2a47",
+    grid:"rgba(103,232,249,0.06)",
+    accent:"#67e8f9",
+    hazard:{kind:"urchin",color:"#22c55e",glow:"#bbf7d0"},
+    botNames:["Diver","Manta","Tide","Breeze","Shell","Ripple","Shore","Glow"],
+    botColors:["#38bdf8","#22c55e","#fbbf24","#a78bfa","#f97316","#f472b6"],
+    decor:[]
+  },
+  scrap:{
+    label:"Scrap Yard",
+    world:{width:4600,height:3400},
+    bgA:"#101827",
+    bgB:"#1f2937",
+    grid:"rgba(251,191,36,0.06)",
+    accent:"#fbbf24",
+    hazard:{kind:"reefMine",color:"#ef4444",glow:"#fecaca"},
+    botNames:["Drone","Rust","Relay","Spark","Gauge","Patch","Grinder","Node"],
+    botColors:["#fbbf24","#38bdf8","#f97316","#9ca3af","#ef4444","#22c55e"],
+    decor:[
+      {kind:"crate",x:.17,y:.22,s:.12,color:"#334155",glow:"#94a3b8"},
+      {kind:"crate",x:.64,y:.18,s:.09,color:"#1f2937",glow:"#fbbf24"},
+      {kind:"gear",x:.26,y:.74,s:.1,color:"#475569",glow:"#cbd5e1"},
+      {kind:"gear",x:.79,y:.7,s:.13,color:"#0f172a",glow:"#f97316"}
+    ]
+  },
+  ember:{
+    label:"Ember Canyon",
+    world:{width:4000,height:4000},
+    bgA:"#120907",
+    bgB:"#3b0a0a",
+    grid:"rgba(248,113,113,0.06)",
+    accent:"#f97316",
+    hazard:{kind:"coralMine",color:"#f59e0b",glow:"#fed7aa"},
+    botNames:["Ash","Cinder","Flint","Nova","Pike","Rune","Echo","Blaze"],
+    botColors:["#fb7185","#f97316","#facc15","#ef4444","#f8fafc","#c084fc"],
+    decor:[
+      {kind:"spike",x:.2,y:.2,s:.13,color:"#7f1d1d",glow:"#f97316"},
+      {kind:"spike",x:.76,y:.2,s:.1,color:"#431407",glow:"#facc15"},
+      {kind:"crack",x:.28,y:.75,s:.12,color:"#78350f",glow:"#fb7185"},
+      {kind:"crack",x:.72,y:.72,s:.1,color:"#1f2937",glow:"#f97316"}
+    ]
+  }
+};
+
+const FOOD_CHAIN=[
+  {kind:"shrimp",file:"assets/shrimp.png",points:1,weight:40,hitR:8,drawScale:1.0},
+  {kind:"mussle",file:"assets/mussle.png",points:1,weight:30,hitR:8.5,drawScale:0.95},
+  {kind:"crab",file:"assets/crab.png",points:2,weight:20,hitR:11,drawScale:0.92},
+  {kind:"seahorse",file:"assets/seahorse.png",points:3,weight:10,hitR:13,drawScale:0.9}
+];
+
+const PLAYER_MUTATIONS=[
+  {mass:10,file:"assets/pufferfish/mutation 1.png",label:"Basic cute inflated pufferfish"},
+  {mass:50,file:"assets/pufferfish/mutation 2.png",label:"First small wart"},
+  {mass:100,file:"assets/pufferfish/mutation 3.png",label:"Angler lamp appears"},
+  {mass:150,file:"assets/pufferfish/mutation 4.png",label:"Small hanging lip"},
+  {mass:200,file:"assets/pufferfish/mutation 5.png",label:"Dark eye bags"},
+  {mass:250,file:"assets/pufferfish/mutation 6.png",label:"Wart grows"},
+  {mass:300,file:"assets/pufferfish/mutation 7.png",label:"First crooked tooth"},
+  {mass:350,file:"assets/pufferfish/mutation 8.png",label:"Tired eyelids"},
+  {mass:400,file:"assets/pufferfish/mutation 9.png",label:"Small scar"},
+  {mass:450,file:"assets/pufferfish/mutation 10.png",label:"Extra wart"},
+  {mass:500,file:"assets/pufferfish/mutation 11.png",label:"Bigger lower lip"},
+  {mass:600,file:"assets/pufferfish/mutation 12.png",label:"More small spikes"},
+  {mass:700,file:"assets/pufferfish/mutation 13.png",label:"Older skin texture"},
+  {mass:800,file:"assets/pufferfish/mutation 14.png",label:"Bigger teeth"},
+  {mass:900,file:"assets/pufferfish/mutation 15.png",label:"Half-closed eyes"},
+  {mass:1000,file:"assets/pufferfish/mutation 16.png",label:"Monster smile"},
+  {mass:1250,file:"assets/pufferfish/mutation 17.png",label:"Back hump"},
+  {mass:1500,file:"assets/pufferfish/mutation 18.png",label:"Small horn"},
+  {mass:1750,file:"assets/pufferfish/mutation 19.png",label:"Additional spikes"},
+  {mass:2000,file:"assets/pufferfish/mutation 20.png",label:"Full ugly monster pufferfish"}
+];
+
+const FISH_TYPES=[
+  {id:"pufferfish",label:"Pufferfish",folder:"pufferfish",spritePrefix:"mutation"},
+  {id:"clownfish",label:"Clownfish",folder:"clownfishes",spritePrefix:"mutation"},
+  {id:"hengelaar",label:"Hengelaar",folder:"hengelaarsvis",spritePrefix:"mutation"},
+  {id:"shark",label:"Shark",folder:"shark",spritePrefix:"shark mutation"}
+];
+
+function loadFishTypeSprites(type){
+  return Array.from({length:PLAYER_MUTATIONS.length},(_,index)=>loadImage(`assets/${type.folder?type.folder+"/":""}${type.spritePrefix} ${index+1}.png`));
+}
+
+const UNLOCK_GOALS={
+  predator1:{type:"enemies",target:10,title:"Predator I"},
+  predator2:{type:"enemies",target:100,title:"Predator II"},
+  predator3:{type:"enemies",target:1000,title:"Predator III"},
+  king1:{type:"kingTime",target:120,title:"King I"},
+  king2:{type:"kingTime",target:300,title:"King II"},
+  king3:{type:"kingTime",target:600,title:"King III"},
+  giant1:{type:"highestMass",target:250,title:"Giant I"},
+  giant2:{type:"highestMass",target:500,title:"Giant II"},
+  giant3:{type:"highestMass",target:1000,title:"Giant III"},
+  legend:{type:"all",target:9,title:"Legend"}
+};
+
+/* -------------------------------------------------------------------------- */
+/* Assets                                                                     */
+/* -------------------------------------------------------------------------- */
+function loadImage(src){
+  const image=new Image();
+  image.loaded=false;
+  image.onload=()=>{ image.loaded=true; };
+  image.onerror=()=>{ image.loaded=true; };
+  const normalizedSrc=String(src).replace(/^data-asset:REPLACED\//,"assets/");
+  const assetKey=normalizedSrc.replace(/^\.?\//,"").replace(/^assets\//,"");
+  const assetMap=typeof ASSET_DATA_URLS!=="undefined"?ASSET_DATA_URLS:null;
+  const dataUrl=assetMap&&(
+    assetMap[assetKey]||
+    assetMap[decodeURI(assetKey)]||
+    assetMap[normalizedSrc]||
+    assetMap[decodeURI(normalizedSrc)]
+  );
+  if(dataUrl){
+    image.src=dataUrl;
+    return image;
+  }
+  try{
+    image.src=encodeURI(normalizedSrc);
+  }catch(e){
+    image.src=normalizedSrc;
+  }
+  return image;
+}
+
+const REEF_BACKGROUND_IMAGE=loadImage("assets/reef-background.png");
+const HAZARD_VISUAL_SPRITE=loadImage("assets/urchin.png");
+const FOOD_VISUAL_SPRITES=Object.fromEntries(FOOD_CHAIN.map(item=>[item.kind,loadImage(item.file)]));
+const PLAYER_VISUAL_SPRITES=Object.fromEntries(FISH_TYPES.map(type=>[type.id,loadFishTypeSprites(type)]));
+
+/* -------------------------------------------------------------------------- */
+/* Mutable state                                                              */
+/* -------------------------------------------------------------------------- */
+const world={width:CONFIG.WORLD_WIDTH,height:CONFIG.WORLD_HEIGHT};
+let activeMapId=localStorage.getItem(MAP_STORAGE_KEY)||"reef";
+let activeMap=MAP_DEFS[activeMapId]||MAP_DEFS.reef;
+let mapDecor=[];
+
+let running=false;
+let foods=[];
+let bots=[];
+let viruses=[];
+let pellets=[];
+let playerParts=[];
+
+let playerName="YOU";
+let selectedNameColor="#ffffff";
+let selectedSkin={type:"color",color:"#38bdf8"};
+let selectedFishType="pufferfish";
+
+let lastSplitTime=0;
+let lastFireTime=0;
+let gameStartTime=0;
+let playerKills=0;
+let maxMassReached=CONFIG.START_MASS;
+let bestRankReached=99;
+let kingFrameCounter=0;
+let foodEatenThisGame=0;
+
+let musicEnabled=false;
+let vibrationEnabled=true;
+let currentUnlockKey=null;
+let lastPlayerDir={x:1,y:0};
+
+const player={x:world.width/2,y:world.height/2,mass:CONFIG.START_MASS,color:"#38bdf8"};
+let cameraState={x:player.x,y:player.y,zoom:1};
+const mouse={x:window.innerWidth/2,y:window.innerHeight/2};
+const joystick={active:false,dx:0,dy:0,max:42};
+
+let persistentStats=loadPersistentStats();
+
+/* -------------------------------------------------------------------------- */
+/* Utility helpers                                                            */
+/* -------------------------------------------------------------------------- */
+function random(min,max){return Math.random()*(max-min)+min}
+function pick(list){return list[Math.floor(Math.random()*list.length)]}
+function radiusFromMass(mass){return Math.sqrt(mass)*6}
+function speedFromMass(mass){return Math.max(1.15,10/Math.pow(mass,.35))}
+function getMutationStageMass(mass){
+  const index=getPlayerMutationIndex(mass);
+  return PLAYER_MUTATIONS[index]?.mass||CONFIG.START_MASS;
+}
+function getMutationCameraZoom(mass){
+  const stageMass=getMutationStageMass(mass);
+  return Math.min(1,radiusFromMass(CONFIG.START_MASS)/radiusFromMass(stageMass));
+}
+function formatTime(seconds){
+  const total=Math.floor(seconds);
+  const minutes=Math.floor(total/60);
+  const secs=total%60;
+  return minutes>0?`${minutes}m ${secs}s`:`${secs}s`;
+}
+function vibrate(pattern){
+  if(vibrationEnabled&&navigator.vibrate)navigator.vibrate(pattern);
+}
+function pickWeightedFood(){
+  const total=FOOD_CHAIN.reduce((sum,item)=>sum+item.weight,0);
+  let roll=Math.random()*total;
+  for(const item of FOOD_CHAIN){
+    roll-=item.weight;
+    if(roll<=0)return item;
+  }
+  return FOOD_CHAIN[0];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Persistence and unlocks                                                    */
+/* -------------------------------------------------------------------------- */
+function loadPersistentStats(){
+  const defaults={enemiesEaten:0,highestMass:CONFIG.START_MASS,kingTime:0,foodEaten:0,unlocks:{}};
+  try{
+    const saved=JSON.parse(localStorage.getItem(UNLOCK_STORAGE_KEY)||"{}");
+    return{
+      enemiesEaten:saved.enemiesEaten||0,
+      highestMass:saved.highestMass||CONFIG.START_MASS,
+      kingTime:saved.kingTime||0,
+      foodEaten:saved.foodEaten||0,
+      unlocks:saved.unlocks||{}
+    };
+  }catch(error){
+    return defaults;
+  }
+}
+
+function savePersistentStats(){
+  localStorage.setItem(UNLOCK_STORAGE_KEY,JSON.stringify(persistentStats));
+}
+
+function isUnlockComplete(key){
+  if(key==="legend"){
+    return ["predator1","predator2","predator3","king1","king2","king3","giant1","giant2","giant3"].every(unlockKey=>persistentStats.unlocks[unlockKey]);
+  }
+  const goal=UNLOCK_GOALS[key];
+  if(!goal)return false;
+  if(goal.type==="enemies")return persistentStats.enemiesEaten>=goal.target;
+  if(goal.type==="highestMass")return persistentStats.highestMass>=goal.target;
+  if(goal.type==="kingTime")return persistentStats.kingTime>=goal.target;
+  return false;
+}
+
+function getUnlockProgressText(key){
+  const goal=UNLOCK_GOALS[key];
+  if(!goal)return "";
+  if(key==="legend"){
+    const done=["predator1","predator2","predator3","king1","king2","king3","giant1","giant2","giant3"].filter(unlockKey=>persistentStats.unlocks[unlockKey]).length;
+    return `${done} / 9`;
+  }
+  if(goal.type==="enemies")return `${Math.min(persistentStats.enemiesEaten,goal.target)} / ${goal.target}`;
+  if(goal.type==="highestMass")return `${Math.floor(Math.min(persistentStats.highestMass,goal.target))} / ${goal.target}`;
+  if(goal.type==="kingTime")return `${formatTime(Math.min(persistentStats.kingTime,goal.target))} / ${formatTime(goal.target)}`;
+  return "";
+}
+
+function checkUnlocks(){
+  let changed=false;
+  for(const key of Object.keys(UNLOCK_GOALS)){
+    if(!persistentStats.unlocks[key]&&isUnlockComplete(key)){
+      persistentStats.unlocks[key]=true;
+      changed=true;
+    }
+  }
+  if(changed)savePersistentStats();
+  renderUnlockStates();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Map setup                                                                  */
+/* -------------------------------------------------------------------------- */
+function setActiveMap(mapId,persist=true){
+  activeMap=MAP_DEFS[mapId]||MAP_DEFS.reef;
+  activeMapId=MAP_DEFS[mapId]?mapId:"reef";
+  world.width=activeMap.world.width;
+  world.height=activeMap.world.height;
+  mapDecor=activeMap.decor.map(item=>({
+    ...item,
+    x:item.x*world.width,
+    y:item.y*world.height,
+    r:Math.max(90,Math.min(world.width,world.height)*item.s)
+  }));
+  if(persist)localStorage.setItem(MAP_STORAGE_KEY,activeMapId);
+}
+
+function isMapUnlocked(mapId){
+  if(mapId==="reef")return true;
+  if(mapId==="scrap")return persistentStats.highestMass>=200;
+  if(mapId==="ember")return persistentStats.enemiesEaten>=50;
+  return false;
+}
+
+function getMapUnlockText(mapId){
+  if(mapId==="reef")return "Unlocked from the start";
+  if(mapId==="scrap")return "Reach a highest mass of 200 to unlock";
+  if(mapId==="ember")return "Eat 50 enemies to unlock";
+  return "";
+}
+
+/* -------------------------------------------------------------------------- */
+/* Menu UI                                                                    */
+/* -------------------------------------------------------------------------- */
+function showMenuPage(page){
+  menuHome.classList.toggle("hidden",page!=="home");
+  collectionPage.classList.toggle("hidden",page!=="collection");
+  multiplayerPage.classList.toggle("hidden",page!=="multiplayer");
+  settingsPage.classList.toggle("hidden",page!=="settings");
+}
+
+function showMainMenu(){
+  showMenuPage("home");
+}
+
+function startSinglePlayer(){
+  showMenuPage("collection");
+  renderUnlockStates();
+  setCollectionInfo("Beweeg over een item","Je ziet hier de opdracht, status en voortgang.","");
+}
+
+function showMultiplayerMenu(){
+  showMenuPage("multiplayer");
+}
+
+function showSettingsMenu(){
+  showMenuPage("settings");
+}
+
+function setCollectionInfo(title,text,progress=""){
+  if(collectionInfoTitle)collectionInfoTitle.textContent=title||"Beweeg over een item";
+  if(collectionInfoText)collectionInfoText.textContent=text||"Je ziet hier de opdracht, status en voortgang.";
+  if(collectionInfoProgress)collectionInfoProgress.textContent=progress;
+}
+
+function showUnlockPopup(title,requirement,progressText){
+  popupTitle.textContent=title||"Locked Skin";
+  popupText.innerHTML=`<strong>Opdracht</strong><br>${requirement}<br><br><strong>Voortgang</strong><br>${progressText||"-"}`;
+  unlockPopup.style.display="flex";
+}
+
+function hideUnlockPopup(){
+  unlockPopup.style.display="none";
+}
+
+function updateMusicButtons(){
+  if(musicIconBtn){
+    musicIconBtn.textContent=musicEnabled?"ON":"OFF";
+    musicIconBtn.classList.toggle("active",musicEnabled);
+  }
+  if(vibrationIconBtn){
+    vibrationIconBtn.textContent=vibrationEnabled?"V":"X";
+    vibrationIconBtn.classList.toggle("active",vibrationEnabled);
+  }
+  if(settingsMusicBtn){
+    settingsMusicBtn.textContent=musicEnabled?"ON":"OFF";
+    settingsMusicBtn.classList.toggle("active",musicEnabled);
+  }
+  if(settingsVibrationBtn){
+    settingsVibrationBtn.textContent=vibrationEnabled?"V":"X";
+    settingsVibrationBtn.classList.toggle("active",vibrationEnabled);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Skin and collection interactions                                           */
+/* -------------------------------------------------------------------------- */
+function applyUnlockSkinFill(context,x,y,r,key){
+  const grad=context.createRadialGradient(x-r*0.3,y-r*0.3,r*0.1,x,y,r);
+  const palettes={
+    predator1:["#cd7f32","#3b1f0f"],
+    predator2:["#e5e7eb","#111827"],
+    predator3:["#facc15","#020617"],
+    king1:["#cd7f32","#78350f"],
+    king2:["#e5e7eb","#475569"],
+    king3:["#facc15","#854d0e"],
+    giant1:["#cd7f32","#3f2d1c"],
+    giant2:["#cbd5e1","#1f2937"],
+    giant3:["#facc15","#422006"],
+    legend:["#a855f7","#facc15"]
+  };
+  const palette=palettes[key]||["#38bdf8","#0f172a"];
+  grad.addColorStop(0,palette[0]);
+  grad.addColorStop(1,palette[1]);
+  context.fillStyle=grad;
+  context.fill();
+}
+
+function renderUnlockStates(){
+  document.querySelectorAll(".unlockSkin").forEach(card=>{
+    const key=card.dataset.unlock;
+    const unlocked=!!persistentStats.unlocks[key];
+    card.classList.toggle("unlocked",unlocked);
+    card.classList.toggle("locked",!unlocked);
+    const icon=card.querySelector(".cardIcon");
+    const state=card.querySelector(".cardState");
+    if(icon)icon.textContent=unlocked?"OPEN":"LOCK";
+    if(state)state.textContent=unlocked?"Unlocked":"Locked";
+  });
+
+  document.querySelectorAll(".mapCard").forEach(card=>{
+    const unlocked=isMapUnlocked(card.dataset.map);
+    card.classList.toggle("unlocked",unlocked);
+    card.classList.toggle("locked",!unlocked);
+    card.classList.toggle("skinSelected",card.dataset.map===activeMapId);
+    const state=card.querySelector(".mapCardState");
+    if(state)state.textContent=unlocked?"Open":"Locked";
+  });
+}
+
+function updateSkinPreview(){
+  drawPreviewBlob();
+}
+
+function selectUnlockSkin(card){
+  const key=card.dataset.unlock;
+  if(!persistentStats.unlocks[key]){
+    const progress=getUnlockProgressText(key);
+    setCollectionInfo(card.dataset.title,card.dataset.requirement,progress);
+    showUnlockPopup(card.dataset.title,card.dataset.requirement,progress);
+    return;
+  }
+  document.querySelectorAll(".colorSkin,.logoSkin,.unlockSkin,.nameColorSkin").forEach(item=>{
+    if(item.classList.contains("unlockSkin")||item.classList.contains("colorSkin")||item.classList.contains("logoSkin")){
+      item.classList.remove("skinSelected");
+    }
+  });
+  card.classList.add("skinSelected");
+  currentUnlockKey=key;
+  selectedSkin={type:"unlock",unlockKey:key,color:"#38bdf8"};
+  setCollectionInfo(card.dataset.title,"Skin geselecteerd en klaar voor de volgende run.",getUnlockProgressText(key));
+  updateSkinPreview();
+}
+
+function selectMapCard(card){
+  const mapId=card.dataset.map;
+  if(!isMapUnlocked(mapId)){
+    const progress=mapId==="scrap"
+      ?`${Math.min(persistentStats.highestMass,200)} / 200`
+      :`${Math.min(persistentStats.enemiesEaten,50)} / 50`;
+    setCollectionInfo(card.dataset.title,card.dataset.requirement,progress);
+    return;
+  }
+  setActiveMap(mapId);
+  renderUnlockStates();
+  setCollectionInfo(card.dataset.title,"Deze map is geselecteerd voor de volgende run.",getMapUnlockText(mapId));
+}
+
+function setupCarousel(trackId){
+  const track=document.getElementById(trackId);
+  if(!track)return;
+  const shell=track.closest(".customCarousel");
+  if(!shell)return;
+  const left=shell.querySelector(".left");
+  const right=shell.querySelector(".right");
+  if(!left||!right)return;
+  const visible=5;
+  const itemStep=54;
+  const total=track.children.length;
+  const maxPage=Math.max(0,Math.ceil(total/visible)-1);
+  let page=0;
+
+  function render(){
+    track.style.transform=`translateX(${-page*visible*itemStep}px)`;
+    left.classList.toggle("hidden",page===0);
+    right.classList.toggle("hidden",page>=maxPage);
+  }
+
+  left.addEventListener("click",()=>{if(page>0){page--;render();}});
+  right.addEventListener("click",()=>{if(page<maxPage){page++;render();}});
+  render();
+}
+
+function setupCollectionUI(){
+  setupCarousel("nameColors");
+  setupCarousel("freeSkins");
+  setupCarousel("premiumSkins");
+
+  document.querySelectorAll(".nameColorSkin").forEach(button=>{
+    button.addEventListener("click",()=>{
+      document.querySelectorAll(".nameColorSkin").forEach(item=>item.classList.remove("skinSelected"));
+      button.classList.add("skinSelected");
+      selectedNameColor=button.dataset.nameColor;
+      updateSkinPreview();
+    });
+  });
+
+  document.querySelectorAll(".colorSkin").forEach(button=>{
+    button.addEventListener("click",()=>{
+      document.querySelectorAll(".colorSkin,.logoSkin,.unlockSkin").forEach(item=>item.classList.remove("skinSelected"));
+      button.classList.add("skinSelected");
+      currentUnlockKey=null;
+      selectedSkin={type:"color",color:button.dataset.color};
+      updateSkinPreview();
+    });
+  });
+
+  document.querySelectorAll(".fishTypeBtn").forEach(button=>{
+    button.addEventListener("click",()=>{
+      document.querySelectorAll(".fishTypeBtn").forEach(item=>item.classList.remove("skinSelected"));
+      button.classList.add("skinSelected");
+      selectedFishType=button.dataset.fishType;
+      updateSkinPreview();
+    });
+    button.addEventListener("mouseenter",()=>{
+      setCollectionInfo(button.dataset.title,`Kies dit vistype voor speler en bots.`,"");
+    });
+    button.addEventListener("focus",()=>{
+      setCollectionInfo(button.dataset.title,`Kies dit vistype voor speler en bots.`,"");
+    });
+  });
+
+  document.querySelectorAll(".unlockSkin").forEach(card=>{
+    card.addEventListener("click",()=>selectUnlockSkin(card));
+    card.addEventListener("mouseenter",()=>setCollectionInfo(card.dataset.title,card.dataset.requirement,getUnlockProgressText(card.dataset.unlock)));
+    card.addEventListener("focus",()=>setCollectionInfo(card.dataset.title,card.dataset.requirement,getUnlockProgressText(card.dataset.unlock)));
+  });
+
+  document.querySelectorAll(".mapCard").forEach(card=>{
+    card.addEventListener("click",()=>selectMapCard(card));
+    card.addEventListener("mouseenter",()=>setCollectionInfo(card.dataset.title,card.dataset.requirement,isMapUnlocked(card.dataset.map)?"Open":"Locked"));
+    card.addEventListener("focus",()=>setCollectionInfo(card.dataset.title,card.dataset.requirement,isMapUnlocked(card.dataset.map)?"Open":"Locked"));
+  });
+
+  singlePlayerBtn.addEventListener("click",startSinglePlayer);
+  multiplayerBtn.addEventListener("click",showMultiplayerMenu);
+  settingsBtn.addEventListener("click",showSettingsMenu);
+  backToHomeBtn.addEventListener("click",showMainMenu);
+
+  if(musicIconBtn){
+    musicIconBtn.addEventListener("click",()=>{
+      musicEnabled=!musicEnabled;
+      updateMusicButtons();
+    });
+  }
+  if(vibrationIconBtn){
+    vibrationIconBtn.addEventListener("click",()=>{
+      vibrationEnabled=!vibrationEnabled;
+      updateMusicButtons();
+      if(vibrationEnabled)vibrate(30);
+    });
+  }
+  if(settingsMusicBtn){
+    settingsMusicBtn.addEventListener("click",()=>{
+      musicEnabled=!musicEnabled;
+      updateMusicButtons();
+    });
+  }
+  if(settingsVibrationBtn){
+    settingsVibrationBtn.addEventListener("click",()=>{
+      vibrationEnabled=!vibrationEnabled;
+      updateMusicButtons();
+      if(vibrationEnabled)vibrate(30);
+    });
+  }
+
+  popupClose.addEventListener("click",hideUnlockPopup);
+  popupOk.addEventListener("click",hideUnlockPopup);
+  unlockPopup.addEventListener("click",event=>{
+    if(event.target===unlockPopup)hideUnlockPopup();
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* World generation                                                           */
+/* -------------------------------------------------------------------------- */
+function getRandomSpawn(margin=220){
+  return{
+    x:random(margin,world.width-margin),
+    y:random(margin,world.height-margin)
+  };
+}
+
+function findSafeSpawn(attempts=24,margin=320,minDistance=620){
+  for(let attempt=0;attempt<attempts;attempt++){
+    const spot=getRandomSpawn(margin);
+    const safeFromViruses=viruses.every(virus=>Math.hypot(virus.x-spot.x,virus.y-spot.y)>minDistance);
+    const safeFromBots=bots.every(bot=>Math.hypot(bot.x-spot.x,bot.y-spot.y)>minDistance);
+    if(safeFromViruses&&safeFromBots)return spot;
+  }
+  return getRandomSpawn(margin);
+}
+
+function createFood(){
+  const style=pickWeightedFood();
+  return{
+    kind:style.kind,
+    x:random(0,world.width),
+    y:random(0,world.height),
+    r:random(4,6),
+    hitR:style.hitR,
+    points:style.points,
+    drawScale:style.drawScale
+  };
+}
+
+function createVirus(){
+  return{
+    kind:activeMap.hazard.kind,
+    x:random(HAZARD_RESPAWN_MARGIN,world.width-HAZARD_RESPAWN_MARGIN),
+    y:random(HAZARD_RESPAWN_MARGIN,world.height-HAZARD_RESPAWN_MARGIN),
+    mass:CONFIG.VIRUS_MASS,
+    r:radiusFromMass(CONFIG.VIRUS_MASS),
+    color:activeMap.hazard.color,
+    glow:activeMap.hazard.glow,
+    eaten:0
+  };
+}
+
+function createBot(){
+  const mass=random(20,65);
+  return{
+    name:pick(activeMap.botNames),
+    x:random(0,world.width),
+    y:random(0,world.height),
+    mass,
+    color:pick(activeMap.botColors),
+    fishType:pick(FISH_TYPES).id,
+    dx:random(-1,1),
+    dy:random(-1,1),
+    changeTimer:random(40,160),
+    decisionTimer:random(15,45),
+    splitCooldown:random(120,260),
+    vx:0,
+    vy:0
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Core gameplay helpers                                                      */
+/* -------------------------------------------------------------------------- */
+function getTotalPlayerMass(){
+  return playerParts.reduce((sum,part)=>sum+part.mass,0);
+}
+
+function getMainPart(){
+  if(!playerParts.length)return null;
+  return playerParts.reduce((best,part)=>part.mass>best.mass?part:best,playerParts[0]);
+}
+
+function updatePlayerCenter(){
+  if(!playerParts.length)return;
+  const total=getTotalPlayerMass();
+  let sumX=0;
+  let sumY=0;
+  for(const part of playerParts){
+    sumX+=part.x*part.mass;
+    sumY+=part.y*part.mass;
+  }
+  player.x=sumX/total;
+  player.y=sumY/total;
+  player.mass=total;
+}
+
+function resolveDecorCollision(entity){
+  for(const decor of mapDecor){
+    if(decor.kind==="crack")continue;
+    const dx=entity.x-decor.x;
+    const dy=entity.y-decor.y;
+    const distance=Math.hypot(dx,dy);
+    const minDistance=decor.r*0.58+radiusFromMass(entity.mass||20);
+    if(distance>0&&distance<minDistance){
+      const push=(minDistance-distance)/2;
+      entity.x+=dx/distance*push;
+      entity.y+=dy/distance*push;
+    }
+  }
+  entity.x=Math.max(0,Math.min(world.width,entity.x));
+  entity.y=Math.max(0,Math.min(world.height,entity.y));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Game state transitions                                                     */
+/* -------------------------------------------------------------------------- */
+function startGame(){
+  if(!isMapUnlocked(activeMapId))setActiveMap("reef");
+  else setActiveMap(activeMapId,false);
+  // ensure the starting mutation sprite for the selected fish is loaded on mobile
+  const startMutIndex = getPlayerMutationIndex(CONFIG.START_MASS);
+  const selSprites = PLAYER_VISUAL_SPRITES[selectedFishType];
+  const firstSprite = selSprites && selSprites[startMutIndex];
+  if(firstSprite && !firstSprite.loaded){
+    // wait for it to load, then retry starting
+    firstSprite.onload = firstSprite.onerror = function(){
+      // small timeout to ensure image metrics available
+      setTimeout(()=>startGame(),50);
+    };
+    return;
+  }
+
+  cameraState=getCamera();
+  running=true;
+  menu.style.display="none";
+  gameOverScreen.style.display="none";
+  joystickBase.style.display="block";
+  actionButtons.style.display="flex";
+
+  playerName=nameInput.value.trim()||"YOU";
+  player.color=selectedSkin.color||"#38bdf8";
+
+  pellets=[];
+  viruses=[];
+  foods=[];
+  bots=[];
+
+  lastSplitTime=0;
+  lastFireTime=0;
+  gameStartTime=performance.now();
+  playerKills=0;
+  maxMassReached=CONFIG.START_MASS;
+  bestRankReached=99;
+  kingFrameCounter=0;
+  foodEatenThisGame=0;
+
+  for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
+  for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
+  for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
+
+  const spawn=findSafeSpawn();
+  player.x=spawn.x;
+  player.y=spawn.y;
+  player.mass=CONFIG.START_MASS;
+  playerParts=[{x:player.x,y:player.y,mass:CONFIG.START_MASS,vx:0,vy:0,mergeTimer:0}];
+
+  for(const virus of viruses){
+    if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
+      const safe=findSafeSpawn(12,240,900);
+      virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
+      virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
+    }
+  }
+}
+
+function returnToMenu(){
+  running=false;
+  gameOverScreen.style.display="none";
+  menu.style.display="flex";
+  joystickBase.style.display="none";
+  actionButtons.style.display="none";
+  playerParts=[];
+  bots=[];
+  foods=[];
+  viruses=[];
+  pellets=[];
+  massText.textContent=String(CONFIG.START_MASS);
+  showMenuPage("home");
+  updateSkinPreview();
+}
+
+function gameOver(){
+  running=false;
+  vibrate([220,80,220]);
+
+  finalScore.textContent=Math.floor(getTotalPlayerMass());
+  finalMaxMass.textContent=Math.floor(maxMassReached);
+  finalKills.textContent=playerKills;
+  finalSurvivalTime.textContent=formatTime((performance.now()-gameStartTime)/1000);
+  finalBestRank.textContent=bestRankReached===99?"-":bestRankReached;
+
+  savePersistentStats();
+  checkUnlocks();
+
+  gameOverScreen.style.display="flex";
+  joystickBase.style.display="none";
+  actionButtons.style.display="none";
+}
+
+/* -------------------------------------------------------------------------- */
+/* Input                                                                      */
+/* -------------------------------------------------------------------------- */
+function resizeCanvas(){
+  canvas.width=window.innerWidth;
+  canvas.height=window.innerHeight;
+}
+
+function updateJoystick(touch){
+  const rect=joystickBase.getBoundingClientRect();
+  const centerX=rect.left+rect.width/2;
+  const centerY=rect.top+rect.height/2;
+  let dx=touch.clientX-centerX;
+  let dy=touch.clientY-centerY;
+  const distance=Math.hypot(dx,dy);
+
+  if(distance>joystick.max){
+    dx=dx/distance*joystick.max;
+    dy=dy/distance*joystick.max;
+  }
+
+  joystick.dx=dx/joystick.max;
+  joystick.dy=dy/joystick.max;
+  joystickStick.style.left=`${35+dx}px`;
+  joystickStick.style.top=`${35+dy}px`;
+}
+
+function resetJoystick(){
+  joystick.active=false;
+  joystick.dx=0;
+  joystick.dy=0;
+  joystickStick.style.left="35px";
+  joystickStick.style.top="35px";
+}
+
+function screenToWorld(screenX,screenY){
+  const camera=getCamera();
+  return{
+    x:camera.x+screenX/camera.zoom,
+    y:camera.y+screenY/camera.zoom
+  };
+}
+
+function getMoveVector(){
+  if(joystick.active){
+    const length=Math.hypot(joystick.dx,joystick.dy);
+    return length>.15?{x:joystick.dx/length,y:joystick.dy/length}:{x:0,y:0};
+  }
+  const target=screenToWorld(mouse.x,mouse.y);
+  const angle=Math.atan2(target.y-player.y,target.x-player.x);
+  const distance=Math.hypot(target.x-player.x,target.y-player.y);
+  return distance>8?{x:Math.cos(angle),y:Math.sin(angle)}:{x:0,y:0};
+}
+
+/* -------------------------------------------------------------------------- */
+/* Camera                                                                     */
+/* -------------------------------------------------------------------------- */
+function getCamera(){
+  let centerX=player.x;
+  let centerY=player.y;
+  let spread=0;
+
+  if(playerParts.length>0){
+    let minX=Infinity;
+    let maxX=-Infinity;
+    let minY=Infinity;
+    let maxY=-Infinity;
+    for(const part of playerParts){
+      const radius=radiusFromMass(part.mass);
+      minX=Math.min(minX,part.x-radius);
+      maxX=Math.max(maxX,part.x+radius);
+      minY=Math.min(minY,part.y-radius);
+      maxY=Math.max(maxY,part.y+radius);
+    }
+    centerX=(minX+maxX)/2;
+    centerY=(minY+maxY)/2;
+    spread=Math.max(maxX-minX,maxY-minY);
+  }
+
+  const mutationZoom=getMutationCameraZoom(getTotalPlayerMass());
+  const spreadZoom=Math.max(.35,Math.min(1,Math.min(canvas.width,canvas.height)/(spread+260)));
+  const zoom=Math.min(mutationZoom,spreadZoom);
+
+  const viewWidth=canvas.width/zoom;
+  const viewHeight=canvas.height/zoom;
+  const maxX=Math.max(0,world.width-viewWidth);
+  const maxY=Math.max(0,world.height-viewHeight);
+
+  return{
+    zoom,
+    x:Math.max(0,Math.min(maxX,centerX-viewWidth/2)),
+    y:Math.max(0,Math.min(maxY,centerY-viewHeight/2))
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Player actions                                                             */
+/* -------------------------------------------------------------------------- */
+function pullPlayerPartsTogether(){
+  if(playerParts.length<2)return;
+  const total=getTotalPlayerMass();
+  let centerX=0;
+  let centerY=0;
+  for(const part of playerParts){
+    centerX+=part.x*part.mass;
+    centerY+=part.y*part.mass;
+  }
+  centerX/=total;
+  centerY/=total;
+
+  for(const part of playerParts){
+    if(part.mergeTimer<=0){
+      part.x+=(centerX-part.x)*.006;
+      part.y+=(centerY-part.y)*.006;
+    }
+  }
+}
+
+function mergePlayerParts(){
+  for(let i=playerParts.length-1;i>=0;i--){
+    for(let j=i-1;j>=0;j--){
+      const a=playerParts[i];
+      const b=playerParts[j];
+      if(a.mergeTimer>0||b.mergeTimer>0)continue;
+      const distance=Math.hypot(a.x-b.x,a.y-b.y);
+      if(distance<Math.max(radiusFromMass(a.mass),radiusFromMass(b.mass))*.45){
+        const total=a.mass+b.mass;
+        b.x=(a.x*a.mass+b.x*b.mass)/total;
+        b.y=(a.y*a.mass+b.y*b.mass)/total;
+        b.mass=total;
+        playerParts.splice(i,1);
+        break;
+      }
+    }
+  }
+}
+
+function updatePlayer(){
+  const move=getMoveVector();
+  if(Math.hypot(move.x,move.y)>0.001)lastPlayerDir={x:move.x,y:move.y};
+
+  for(const part of playerParts){
+    const speed=speedFromMass(part.mass);
+    part.x+=move.x*speed;
+    part.y+=move.y*speed;
+    part.x+=part.vx;
+    part.y+=part.vy;
+    part.vx*=.92;
+    part.vy*=.92;
+    if(part.mergeTimer>0)part.mergeTimer--;
+    resolveDecorCollision(part);
+  }
+
+  pullPlayerPartsTogether();
+  mergePlayerParts();
+  updatePlayerCenter();
+}
+
+function splitPlayer(){
+  if(!running)return;
+  const now=performance.now();
+  if(now-lastSplitTime<850||playerParts.length>=SPLIT_TUNING.MAX_PARTS)return;
+
+  const snapshot=[...playerParts];
+  const move=getMoveVector();
+  const dir=Math.hypot(move.x,move.y)>0?move:(Math.hypot(lastPlayerDir.x,lastPlayerDir.y)>0?lastPlayerDir:{x:1,y:0});
+  let didSplit=false;
+
+  for(const part of snapshot){
+    if(playerParts.length>=SPLIT_TUNING.MAX_PARTS)break;
+    if(part.mass<SPLIT_TUNING.MIN_MASS)continue;
+
+    const newMass=part.mass/2;
+    const launch=radiusFromMass(newMass)*SPLIT_TUNING.LAUNCH_DISTANCE;
+
+    part.mass=newMass;
+    playerParts.push({
+      x:part.x+dir.x*launch,
+      y:part.y+dir.y*launch,
+      mass:newMass,
+      vx:dir.x*SPLIT_TUNING.LAUNCH_SPEED,
+      vy:dir.y*SPLIT_TUNING.LAUNCH_SPEED,
+      mergeTimer:SPLIT_TUNING.MERGE_TIMER
+    });
+    didSplit=true;
+  }
+
+  if(!didSplit)return;
+  lastSplitTime=now;
+  vibrate(45);
+  updatePlayerCenter();
+}
+
+function firePellet(){
+  if(!running)return;
+  const now=performance.now();
+  if(now-lastFireTime<280)return;
+
+  const part=getMainPart();
+  if(!part||part.mass<24)return;
+
+  const move=getMoveVector();
+  const dir=Math.hypot(move.x,move.y)>0?move:(Math.hypot(lastPlayerDir.x,lastPlayerDir.y)>0?lastPlayerDir:{x:1,y:0});
+  part.mass-=3;
+
+  const radius=radiusFromMass(part.mass);
+  pellets.push({
+    x:part.x+dir.x*(radius+16),
+    y:part.y+dir.y*(radius+16),
+    vx:dir.x*12,
+    vy:dir.y*12,
+    mass:3,
+    life:150,
+    color:"#facc15"
+  });
+
+  lastFireTime=now;
+  vibrate(45);
+  updatePlayerCenter();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Bots and hazards                                                           */
+/* -------------------------------------------------------------------------- */
+function setBotDirection(bot,dx,dy,sharpness=.7){
+  const length=Math.hypot(dx,dy)||1;
+  const nextX=dx/length;
+  const nextY=dy/length;
+  bot.dx=bot.dx*(1-sharpness)+nextX*sharpness;
+  bot.dy=bot.dy*(1-sharpness)+nextY*sharpness;
+}
+
+function botSplitToward(bot,target){
+  const dx=target.x-bot.x;
+  const dy=target.y-bot.y;
+  const length=Math.hypot(dx,dy)||1;
+  const splitMass=bot.mass/2;
+  bot.mass=splitMass;
+  bots.push({
+    name:bot.name,
+    x:bot.x+dx/length*radiusFromMass(splitMass),
+    y:bot.y+dy/length*radiusFromMass(splitMass),
+    mass:splitMass,
+    color:bot.color,
+    dx,
+    dy,
+    vx:dx/length*9,
+    vy:dy/length*9,
+    changeTimer:90,
+    decisionTimer:random(20,50),
+    splitCooldown:420
+  });
+  bot.splitCooldown=420;
+}
+
+function decideBotBehavior(bot){
+  const targets=[];
+  for(const part of playerParts)targets.push({type:"player",x:part.x,y:part.y,mass:part.mass});
+  for(const other of bots)if(other!==bot)targets.push({type:"bot",x:other.x,y:other.y,mass:other.mass,ref:other});
+
+  let threat=null;
+  let threatDistance=Infinity;
+  let prey=null;
+  let preyScore=-Infinity;
+
+  for(const target of targets){
+    const distance=Math.hypot(target.x-bot.x,target.y-bot.y);
+    if(target.mass>bot.mass*CONFIG.EAT_RATIO&&distance<520&&distance<threatDistance){
+      threat=target;
+      threatDistance=distance;
+    }
+    if(bot.mass>target.mass*CONFIG.EAT_RATIO&&distance<850){
+      const score=target.mass-distance*.08;
+      if(score>preyScore){
+        prey=target;
+        preyScore=score;
+      }
+    }
+  }
+
+  let nearbyVirus=null;
+  let nearbyVirusDistance=Infinity;
+  if(bot.mass>CONFIG.VIRUS_MASS*CONFIG.EAT_RATIO){
+    for(const virus of viruses){
+      const distance=Math.hypot(virus.x-bot.x,virus.y-bot.y);
+      if(distance<nearbyVirusDistance){
+        nearbyVirus=virus;
+        nearbyVirusDistance=distance;
+      }
+    }
+  }
+
+  if(nearbyVirus&&nearbyVirusDistance<180){
+    setBotDirection(bot,bot.x-nearbyVirus.x,bot.y-nearbyVirus.y,.85);
+    return;
+  }
+  if(threat&&threatDistance<520){
+    setBotDirection(bot,bot.x-threat.x,bot.y-threat.y,.9);
+    return;
+  }
+  if(prey){
+    setBotDirection(bot,prey.x-bot.x,prey.y-bot.y,.75);
+    const distance=Math.hypot(prey.x-bot.x,prey.y-bot.y);
+    if(bot.splitCooldown<=0&&bot.mass>=45&&bot.mass/2>prey.mass*CONFIG.EAT_RATIO&&distance<340){
+      botSplitToward(bot,prey);
+    }
+    return;
+  }
+
+  let foodTarget=null;
+  let foodDistance=Infinity;
+  for(const food of foods){
+    const distance=Math.hypot(food.x-bot.x,food.y-bot.y);
+    if(distance<foodDistance&&distance<480){
+      foodTarget=food;
+      foodDistance=distance;
+    }
+  }
+  if(foodTarget){
+    setBotDirection(bot,foodTarget.x-bot.x,foodTarget.y-bot.y,.6);
+    return;
+  }
+
+  if(bot.changeTimer<=0||Math.random()<.25){
+    setBotDirection(bot,random(-1,1),random(-1,1),.35);
+    bot.changeTimer=random(50,150);
+  }else{
+    bot.changeTimer--;
+  }
+}
+
+function updateBots(){
+  for(const bot of bots){
+    bot.splitCooldown--;
+    bot.decisionTimer--;
+    if(bot.decisionTimer<=0){
+      decideBotBehavior(bot);
+      bot.decisionTimer=random(18,55);
+    }
+    const length=Math.hypot(bot.dx,bot.dy)||1;
+    const speed=speedFromMass(bot.mass);
+    bot.x+=bot.dx/length*speed;
+    bot.y+=bot.dy/length*speed;
+    bot.x+=bot.vx||0;
+    bot.y+=bot.vy||0;
+    bot.vx=(bot.vx||0)*.92;
+    bot.vy=(bot.vy||0)*.92;
+    if(bot.x<0||bot.x>world.width)bot.dx*=-1;
+    if(bot.y<0||bot.y>world.height)bot.dy*=-1;
+    resolveDecorCollision(bot);
+  }
+}
+
+function updatePellets(){
+  for(let i=pellets.length-1;i>=0;i--){
+    const pellet=pellets[i];
+    pellet.x+=pellet.vx;
+    pellet.y+=pellet.vy;
+    pellet.vx*=.96;
+    pellet.vy*=.96;
+    pellet.life--;
+    pellet.x=Math.max(0,Math.min(world.width,pellet.x));
+    pellet.y=Math.max(0,Math.min(world.height,pellet.y));
+
+    let hit=false;
+    for(const bot of bots){
+      if(Math.hypot(bot.x-pellet.x,bot.y-pellet.y)<radiusFromMass(bot.mass)){
+        bot.mass+=pellet.mass;
+        hit=true;
+        break;
+      }
+    }
+
+    if(hit||pellet.life<=0)pellets.splice(i,1);
+  }
+}
+
+function explodeOnVirus(part,virus){
+  if(part.mass<=CONFIG.VIRUS_MASS*CONFIG.EAT_RATIO||playerParts.length>=SPLIT_TUNING.MAX_PARTS)return;
+  const totalMass=part.mass;
+  const amount=Math.min(
+    SPLIT_TUNING.MAX_PARTS-playerParts.length+1,
+    Math.max(4,Math.floor(totalMass/35))
+  );
+  const partMass=totalMass/amount;
+  const index=playerParts.indexOf(part);
+  if(index!==-1)playerParts.splice(index,1);
+
+  for(let i=0;i<amount;i++){
+    const angle=Math.PI*2/amount*i;
+    playerParts.push({
+      x:part.x+Math.cos(angle)*18,
+      y:part.y+Math.sin(angle)*18,
+      mass:partMass,
+      vx:Math.cos(angle)*8,
+      vy:Math.sin(angle)*8,
+      mergeTimer:300
+    });
+  }
+
+  virus.x=random(HAZARD_RESPAWN_MARGIN,world.width-HAZARD_RESPAWN_MARGIN);
+  virus.y=random(HAZARD_RESPAWN_MARGIN,world.height-HAZARD_RESPAWN_MARGIN);
+  virus.eaten=0;
+  updatePlayerCenter();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Collision and progression                                                  */
+/* -------------------------------------------------------------------------- */
+function checkFood(){
+  for(const part of playerParts){
+    const playerRadius=radiusFromMass(part.mass);
+    for(let i=foods.length-1;i>=0;i--){
+      const food=foods[i];
+      const foodRadius=food.hitR||food.r;
+      if(Math.hypot(part.x-food.x,part.y-food.y)<playerRadius+foodRadius){
+        foods.splice(i,1);
+        foods.push(createFood());
+        part.mass+=food.points||1;
+        foodEatenThisGame++;
+        persistentStats.foodEaten++;
+        vibrate(12);
+      }
+    }
+  }
+
+  for(const bot of bots){
+    const botRadius=radiusFromMass(bot.mass);
+    for(let i=foods.length-1;i>=0;i--){
+      const food=foods[i];
+      const foodRadius=food.hitR||food.r;
+      if(Math.hypot(bot.x-food.x,bot.y-food.y)<botRadius+foodRadius){
+        foods.splice(i,1);
+        foods.push(createFood());
+        bot.mass+=food.points||1;
+      }
+    }
+  }
+}
+
+function maintainBotCount(){
+  while(bots.length<CONFIG.BOT_COUNT)bots.push(createBot());
+  while(bots.length>CONFIG.BOT_COUNT)bots.pop();
+}
+
+function checkBotCollisions(){
+  for(let i=bots.length-1;i>=0;i--){
+    const bot=bots[i];
+    const botRadius=radiusFromMass(bot.mass);
+
+    for(let j=playerParts.length-1;j>=0;j--){
+      const part=playerParts[j];
+      const playerRadius=radiusFromMass(part.mass);
+      const distance=Math.hypot(part.x-bot.x,part.y-bot.y);
+
+      if(distance<Math.max(playerRadius,botRadius)*.75){
+        if(part.mass>bot.mass*CONFIG.EAT_RATIO){
+          part.mass+=bot.mass*.55;
+          playerKills++;
+          persistentStats.enemiesEaten++;
+          savePersistentStats();
+          vibrate(90);
+          bots.splice(i,1);
+          maintainBotCount();
+          break;
+        }
+        if(bot.mass>part.mass*CONFIG.EAT_RATIO){
+          bot.mass+=part.mass*.55;
+          playerParts.splice(j,1);
+          vibrate(90);
+          if(!playerParts.length){
+            gameOver();
+            return;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  for(let i=bots.length-1;i>=0;i--){
+    for(let j=bots.length-1;j>=0;j--){
+      if(i===j||!bots[i]||!bots[j])continue;
+      const a=bots[i];
+      const b=bots[j];
+      const distance=Math.hypot(a.x-b.x,a.y-b.y);
+      if(distance<Math.max(radiusFromMass(a.mass),radiusFromMass(b.mass))*.72&&a.mass>b.mass*CONFIG.EAT_RATIO){
+        a.mass+=b.mass*.55;
+        bots.splice(j,1);
+        maintainBotCount();
+        break;
+      }
+    }
+  }
+
+  updatePlayerCenter();
+}
+
+function checkViruses(){
+  for(const virus of viruses){
+    for(const part of [...playerParts]){
+      if(Math.hypot(part.x-virus.x,part.y-virus.y)<radiusFromMass(part.mass)+virus.r&&part.mass>CONFIG.VIRUS_MASS*CONFIG.EAT_RATIO){
+        virus.eaten+=0.5;
+        if(virus.eaten>=CONFIG.VIRUS_MASS/3){
+          vibrate(100);
+          explodeOnVirus(part,virus);
+          virus.eaten=0;
+          return;
+        }
+      }
+    }
+  }
+}
+
+function applyMassDecay(){
+  for(const part of playerParts){
+    if(part.mass>=1500)part.mass=Math.max(CONFIG.START_MASS,part.mass-2/60);
+    else if(part.mass>=852)part.mass=Math.max(CONFIG.START_MASS,part.mass-1/60);
+    else if(part.mass>=302)part.mass=Math.max(CONFIG.START_MASS,part.mass-0.5/60);
+  }
+  for(const bot of bots){
+    if(bot.mass>=1500)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-2/60);
+    else if(bot.mass>=852)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-1/60);
+    else if(bot.mass>=302)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-0.5/60);
+  }
+  updatePlayerCenter();
+}
+
+function getLeaderInfo(){
+  const entries=bots.map(bot=>({type:"bot",ref:bot,name:bot.name,mass:bot.mass}));
+  if(playerParts.length)entries.push({type:"player",ref:null,name:playerName,mass:getTotalPlayerMass()});
+  entries.sort((a,b)=>b.mass-a.mass);
+  return entries[0]||null;
+}
+
+function updateLeaderboard(){
+  const entries=bots.map(bot=>({type:"bot",ref:bot,name:bot.name,mass:bot.mass}));
+  if(playerParts.length)entries.push({type:"player",ref:null,name:playerName,mass:getTotalPlayerMass()});
+  entries.sort((a,b)=>b.mass-a.mass);
+
+  leaderboardList.innerHTML="";
+  entries.slice(0,10).forEach((entry,index)=>{
+    const li=document.createElement("li");
+    li.textContent=`${index===0?"#1 ":""}${entry.name}: ${Math.floor(entry.mass)}`;
+    leaderboardList.appendChild(li);
+  });
+}
+
+function updatePlayerStats(){
+  const currentMass=getTotalPlayerMass();
+  if(currentMass>maxMassReached)maxMassReached=currentMass;
+  if(currentMass>persistentStats.highestMass){
+    persistentStats.highestMass=currentMass;
+    savePersistentStats();
+  }
+
+  const entries=bots.map(bot=>({type:"bot",mass:bot.mass}));
+  if(playerParts.length)entries.push({type:"player",mass:currentMass});
+  entries.sort((a,b)=>b.mass-a.mass);
+
+  const rank=entries.findIndex(entry=>entry.type==="player")+1;
+  if(rank>0&&rank<bestRankReached)bestRankReached=rank;
+
+  if(rank===1&&running){
+    persistentStats.kingTime+=1/60;
+    kingFrameCounter++;
+    if(kingFrameCounter>=60){
+      kingFrameCounter=0;
+      savePersistentStats();
+    }
+  }
+
+  checkUnlocks();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rendering                                                                  */
+/* -------------------------------------------------------------------------- */
+function drawBackdrop(){
+  const gradient=ctx.createLinearGradient(0,0,0,world.height);
+  gradient.addColorStop(0,activeMap.bgA);
+  gradient.addColorStop(1,activeMap.bgB);
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,world.width,world.height);
+
+  if(activeMapId==="reef"&&REEF_BACKGROUND_IMAGE.complete&&REEF_BACKGROUND_IMAGE.naturalWidth>0){
+    const imageWidth=REEF_BACKGROUND_IMAGE.naturalWidth;
+    const imageHeight=REEF_BACKGROUND_IMAGE.naturalHeight;
+    const scale=Math.max(world.width/imageWidth,world.height/imageHeight);
+    const drawWidth=imageWidth*scale;
+    const drawHeight=imageHeight*scale;
+    const drawX=(world.width-drawWidth)/2;
+    const drawY=world.height-drawHeight;
+    ctx.drawImage(REEF_BACKGROUND_IMAGE,drawX,drawY,drawWidth,drawHeight);
+  }
+
+  const glow=ctx.createRadialGradient(world.width*.5,world.height*.45,80,world.width*.5,world.height*.5,Math.max(world.width,world.height)*.75);
+  glow.addColorStop(0,"rgba(255,255,255,0.05)");
+  glow.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=glow;
+  ctx.fillRect(0,0,world.width,world.height);
+}
+
+function drawMapDecor(){
+  for(const decor of mapDecor){
+    ctx.save();
+    ctx.translate(decor.x,decor.y);
+    ctx.fillStyle=decor.color;
+    ctx.strokeStyle=decor.glow;
+    ctx.lineWidth=5;
+
+    if(decor.kind==="crate"){
+      ctx.fillRect(-decor.r*.55,-decor.r*.55,decor.r*1.1,decor.r*1.1);
+      ctx.strokeRect(-decor.r*.55,-decor.r*.55,decor.r*1.1,decor.r*1.1);
+    }else if(decor.kind==="gear"){
+      ctx.beginPath();
+      for(let i=0;i<10;i++){
+        const angle=Math.PI*2/10*i;
+        const radius=i%2===0?decor.r*0.7:decor.r*0.95;
+        const px=Math.cos(angle)*radius;
+        const py=Math.sin(angle)*radius;
+        if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0,0,decor.r*0.28,0,Math.PI*2);
+      ctx.fillStyle=decor.glow;
+      ctx.fill();
+    }else if(decor.kind==="spike"){
+      ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const angle=Math.PI*2/6*i;
+        const radius=i%2===0?decor.r*0.55:decor.r*1.05;
+        const px=Math.cos(angle)*radius;
+        const py=Math.sin(angle)*radius;
+        if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }else if(decor.kind==="crack"){
+      ctx.beginPath();
+      ctx.moveTo(-decor.r*.55,-decor.r*.2);
+      ctx.lineTo(-decor.r*.2,decor.r*.1);
+      ctx.lineTo(decor.r*.15,-decor.r*.05);
+      ctx.lineTo(decor.r*.55,decor.r*.35);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+function drawGrid(camera){
+  if(activeMapId==="reef")return;
+  const gap=120;
+  ctx.strokeStyle=activeMap.grid;
+  ctx.lineWidth=1/camera.zoom;
+  const startX=Math.floor(camera.x/gap)*gap;
+  const startY=Math.floor(camera.y/gap)*gap;
+  const endX=camera.x+canvas.width/camera.zoom;
+  const endY=camera.y+canvas.height/camera.zoom;
+
+  for(let x=startX;x<endX;x+=gap){
+    ctx.beginPath();
+    ctx.moveTo(x,camera.y);
+    ctx.lineTo(x,endY);
+    ctx.stroke();
+  }
+  for(let y=startY;y<endY;y+=gap){
+    ctx.beginPath();
+    ctx.moveTo(camera.x,y);
+    ctx.lineTo(endX,y);
+    ctx.stroke();
+  }
+}
+
+function drawFoodDot(food){
+  const sprite=FOOD_VISUAL_SPRITES[food.kind];
+  ctx.save();
+  ctx.translate(food.x,food.y);
+
+  if(sprite&&sprite.complete&&sprite.naturalWidth>0){
+    const box=(food.hitR||food.r)*1.9*(food.drawScale||1);
+    const ratio=sprite.naturalWidth/sprite.naturalHeight||1;
+    let drawWidth=box;
+    let drawHeight=box;
+    if(ratio>=1)drawHeight=box/ratio;
+    else drawWidth=box*ratio;
+    ctx.drawImage(sprite,-drawWidth/2,-drawHeight/2,drawWidth,drawHeight);
+  }else{
+    ctx.fillStyle="#fff";
+    ctx.beginPath();
+    ctx.arc(0,0,food.r,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawHazardDot(virus){
+  ctx.save();
+  ctx.translate(virus.x,virus.y);
+
+  if(HAZARD_VISUAL_SPRITE.complete&&HAZARD_VISUAL_SPRITE.naturalWidth>0){
+    const size=virus.r*2.5;
+    ctx.drawImage(HAZARD_VISUAL_SPRITE,-size/2,-size/2,size,size);
+    ctx.restore();
+    return;
+  }
+
+  if(virus.kind==="urchin"||virus.kind==="coralMine"){
+    ctx.fillStyle=virus.color;
+    ctx.beginPath();
+    const spikes=virus.kind==="urchin"?16:18;
+    for(let i=0;i<spikes;i++){
+      const angle=Math.PI*2/spikes*i;
+      const radius=i%2===0?virus.r*1.2:virus.r*.72;
+      const px=Math.cos(angle)*radius;
+      const py=Math.sin(angle)*radius;
+      if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }else{
+    ctx.fillStyle=virus.color;
+    ctx.beginPath();
+    ctx.arc(0,0,virus.r*.74,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function getPlayerMutationIndex(mass){
+  let index=0;
+  for(let i=0;i<PLAYER_MUTATIONS.length;i++){
+    if(mass>=PLAYER_MUTATIONS[i].mass)index=i;
+    else break;
+  }
+  return index;
+}
+
+function drawPufferfish(context,x,y,r,color,label="",skin=null,nameColor="white",isLeader=false,massLabel=null,mass=20,dirX=1,fishType="pufferfish"){
+  const sprite=PLAYER_VISUAL_SPRITES[fishType]?
+    PLAYER_VISUAL_SPRITES[fishType][getPlayerMutationIndex(mass)]
+    :PLAYER_VISUAL_SPRITES["pufferfish"][getPlayerMutationIndex(mass)];
+  const spriteReady=!!(sprite&&sprite.complete&&sprite.naturalWidth>0);
+  const faceRight=dirX>=0;
+
+  context.save();
+  context.translate(x,y);
+  if(faceRight){
+    if(fishType==="hengelaar"){
+      context.scale(1,1);
+    }else{
+      context.scale(-1,1);
+    }
+  }else{
+    if(fishType==="hengelaar"){
+      context.scale(-1,1);
+    }
+  }
+
+  if(spriteReady){
+    context.drawImage(sprite,-r*1.28,-r*1.05,r*2.56,r*2.1);
+  }else{
+    context.fillStyle=color;
+    context.beginPath();
+    context.ellipse(0,0,r*1.02,r*.82,0,0,Math.PI*2);
+    context.fill();
+  }
+  context.restore();
+
+  if(label){
+    context.textAlign="center";
+    context.textBaseline="middle";
+    context.lineWidth=4;
+    context.strokeStyle="rgba(0,0,0,0.55)";
+    context.fillStyle=nameColor;
+    const nameSize=Math.max(10,Math.min(22,Math.round(r*0.14)));
+    const massSize=Math.max(9,Math.min(18,Math.round(r*0.12)));
+    const baseY=isLeader?r*.02:-r*.12;
+    context.font=`${nameSize}px Arial`;
+    context.strokeText(label,x,y+baseY);
+    context.fillText(label,x,y+baseY);
+    if(massLabel!==null){
+      context.font=`${massSize}px Arial`;
+      context.strokeText(String(Math.floor(massLabel)),x,y+baseY+r*.30);
+      context.fillText(String(Math.floor(massLabel)),x,y+baseY+r*.30);
+    }
+  }
+
+  if(isLeader){
+    context.fillStyle="#facc15";
+    context.font=`${Math.max(14,r*.36)}px Arial`;
+    context.textAlign="center";
+    context.textBaseline="middle";
+    context.lineWidth=4;
+    context.strokeStyle="rgba(0,0,0,0.55)";
+    context.strokeText("#1",x,y-r*.38);
+    context.fillText("#1",x,y-r*.38);
+  }
+}
+
+function drawPreviewBlob(){
+  previewCtx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
+  const x=previewCanvas.width/2;
+  const y=previewCanvas.height/2;
+  const r=radiusFromMass(CONFIG.START_MASS);
+  const label=nameInput.value.trim()||"YOU";
+  drawPufferfish(previewCtx,x,y,r,selectedSkin.color||"#38bdf8",label,selectedSkin,selectedNameColor,false,null,CONFIG.START_MASS,1,selectedFishType);
+}
+
+function drawCircle(x,y,r,color){
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawMinimap(){
+  miniCtx.clearRect(0,0,minimap.width,minimap.height);
+  miniCtx.fillStyle="rgba(15,23,42,0.95)";
+  miniCtx.fillRect(0,0,minimap.width,minimap.height);
+  miniCtx.strokeStyle="rgba(255,255,255,0.35)";
+  miniCtx.strokeRect(0,0,minimap.width,minimap.height);
+
+  const scaleX=minimap.width/world.width;
+  const scaleY=minimap.height/world.height;
+  const leader=getLeaderInfo();
+  const playerMass=Math.max(1,getTotalPlayerMass());
+
+  for(const virus of viruses){
+    miniCtx.fillStyle="#a855f7";
+    miniCtx.beginPath();
+    miniCtx.arc(virus.x*scaleX,virus.y*scaleY,2.5,0,Math.PI*2);
+    miniCtx.fill();
+  }
+
+  for(const bot of bots){
+    const isLeader=leader&&leader.type==="bot"&&leader.ref===bot;
+    const relation=bot.mass>playerMass*CONFIG.EAT_RATIO?"threat":bot.mass*CONFIG.EAT_RATIO<playerMass?"prey":"neutral";
+    miniCtx.fillStyle=isLeader?"#facc15":relation==="threat"?"#ef4444":relation==="prey"?"#22c55e":"#94a3b8";
+    miniCtx.beginPath();
+    miniCtx.arc(bot.x*scaleX,bot.y*scaleY,isLeader?4:3,0,Math.PI*2);
+    miniCtx.fill();
+  }
+
+  for(const part of playerParts){
+    const isLeader=leader&&leader.type==="player";
+    miniCtx.fillStyle=isLeader?"#facc15":"#38bdf8";
+    miniCtx.beginPath();
+    miniCtx.arc(part.x*scaleX,part.y*scaleY,isLeader?4.5:3.5,0,Math.PI*2);
+    miniCtx.fill();
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const targetCamera=getCamera();
+  cameraState.x+=(targetCamera.x-cameraState.x)*.12;
+  cameraState.y+=(targetCamera.y-cameraState.y)*.12;
+  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.12;
+  if(Math.abs(targetCamera.x-cameraState.x)<.05)cameraState.x=targetCamera.x;
+  if(Math.abs(targetCamera.y-cameraState.y)<.05)cameraState.y=targetCamera.y;
+  if(Math.abs(targetCamera.zoom-cameraState.zoom)<.001)cameraState.zoom=targetCamera.zoom;
+  const camera=cameraState;
+
+  ctx.save();
+  ctx.scale(camera.zoom,camera.zoom);
+  ctx.translate(-camera.x,-camera.y);
+
+  drawBackdrop();
+  drawMapDecor();
+  drawGrid(camera);
+
+  if(activeMapId!=="reef"){
+    ctx.strokeStyle=activeMap.accent;
+    ctx.lineWidth=8;
+    ctx.strokeRect(0,0,world.width,world.height);
+  }
+
+  for(const food of foods)drawFoodDot(food);
+  for(const virus of viruses)drawHazardDot(virus);
+  for(const pellet of pellets)drawCircle(pellet.x,pellet.y,7,pellet.color);
+
+  const leader=getLeaderInfo();
+  for(const bot of bots){
+    drawPufferfish(ctx,bot.x,bot.y,radiusFromMass(bot.mass),bot.color,bot.name,null,"white",leader&&leader.type==="bot"&&leader.ref===bot,bot.mass,bot.mass,bot.dx,bot.fishType);
+  }
+  for(const part of playerParts){
+    // Do not render the player's own mass above the part (it's shown in the HUD at top-left)
+    drawPufferfish(ctx,part.x,part.y,radiusFromMass(part.mass),player.color,playerName,selectedSkin,selectedNameColor,leader&&leader.type==="player",null,part.mass,lastPlayerDir.x,selectedFishType);
+  }
+
+  ctx.restore();
+  massText.textContent=Math.floor(getTotalPlayerMass());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Main loop                                                                  */
+/* -------------------------------------------------------------------------- */
+function loop(){
+  if(running){
+    updatePlayer();
+    updateBots();
+    updatePellets();
+    checkFood();
+    checkBotCollisions();
+    checkViruses();
+    applyMassDecay();
+    maintainBotCount();
+    updateLeaderboard();
+    updatePlayerStats();
+    drawMinimap();
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Event wiring and boot                                                      */
+/* -------------------------------------------------------------------------- */
+window.addEventListener("resize",resizeCanvas);
+window.addEventListener("mousemove",event=>{
+  mouse.x=event.clientX;
+  mouse.y=event.clientY;
+});
+window.addEventListener("keydown",event=>{
+  if(event.code==="Space")splitPlayer();
+  if(event.key.toLowerCase()==="w")firePellet();
+});
+
+joystickBase.addEventListener("touchstart",event=>{
+  event.preventDefault();
+  joystick.active=true;
+  updateJoystick(event.touches[0]);
+},{passive:false});
+
+joystickBase.addEventListener("touchmove",event=>{
+  event.preventDefault();
+  updateJoystick(event.touches[0]);
+},{passive:false});
+
+joystickBase.addEventListener("touchend",event=>{
+  event.preventDefault();
+  resetJoystick();
+},{passive:false});
+
+splitBtn.addEventListener("touchstart",event=>{
+  event.preventDefault();
+  splitPlayer();
+},{passive:false});
+fireBtn.addEventListener("touchstart",event=>{
+  event.preventDefault();
+  firePellet();
+},{passive:false});
+splitBtn.addEventListener("click",splitPlayer);
+fireBtn.addEventListener("click",firePellet);
+nameInput.addEventListener("input",updateSkinPreview);
+
+setActiveMap(activeMapId,false);
+if(!isMapUnlocked(activeMapId))setActiveMap("reef",false);
+resizeCanvas();
+setupCollectionUI();
+updateMusicButtons();
+renderUnlockStates();
+showMenuPage("home");
+setCollectionInfo("Beweeg over een item","Je ziet hier de opdracht, status en voortgang.","");
+updateSkinPreview();
+loop();
+</script>
+</body>
+</html>
