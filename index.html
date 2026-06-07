@@ -859,6 +859,7 @@ let vibrationEnabled=true;
 let currentUnlockKey=null;
 let lastPlayerDir={x:1,y:0};
 let moveVelocity={x:0,y:0};
+const isTouchDevice=window.matchMedia?.("(pointer: coarse)").matches||navigator.maxTouchPoints>0;
 
 const player={x:world.width/2,y:world.height/2,mass:CONFIG.START_MASS,color:"#38bdf8"};
 let cameraState={x:player.x,y:player.y,zoom:1};
@@ -888,9 +889,9 @@ function getMutationCameraZoom(mass){
 
   // Each mutation keeps the fish a bit larger on screen, while still growing
   // a little more within the same stage.
-  const stageBaseZoom=1+(index*.06);
-  const stageGrowthZoom=stageProgress*.035;
-  return Math.min(1.35,stageBaseZoom+stageGrowthZoom);
+  const stageBaseZoom=1+(index*.04);
+  const stageGrowthZoom=stageProgress*.02;
+  return Math.min(1.22,stageBaseZoom+stageGrowthZoom);
 }
 function formatTime(seconds){
   const total=Math.floor(seconds);
@@ -1518,6 +1519,7 @@ function getMoveVector(){
     const length=Math.hypot(joystick.dx,joystick.dy);
     return length>.15?{x:joystick.dx/length,y:joystick.dy/length}:{x:0,y:0};
   }
+  if(isTouchDevice)return {x:0,y:0};
   const target=screenToWorld(mouse.x,mouse.y);
   const angle=Math.atan2(target.y-player.y,target.x-player.x);
   const distance=Math.hypot(target.x-player.x,target.y-player.y);
@@ -1617,11 +1619,11 @@ function updatePlayer(){
     moveVelocity.x+=(targetX-moveVelocity.x)*0.2;
     moveVelocity.y+=(targetY-moveVelocity.y)*0.2;
   }else{
-    moveVelocity.x*=0.965;
-    moveVelocity.y*=0.965;
+    moveVelocity.x*=0.9;
+    moveVelocity.y*=0.9;
   }
-  if(Math.abs(moveVelocity.x)<.001)moveVelocity.x=0;
-  if(Math.abs(moveVelocity.y)<.001)moveVelocity.y=0;
+  if(Math.abs(moveVelocity.x)<.01)moveVelocity.x=0;
+  if(Math.abs(moveVelocity.y)<.01)moveVelocity.y=0;
 
   for(const part of playerParts){
     const speed=speedFromMass(part.mass);
