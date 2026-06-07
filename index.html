@@ -1611,11 +1611,15 @@ function updatePlayer(){
   const move=getMoveVector();
   if(Math.hypot(move.x,move.y)>0.001)lastPlayerDir={x:move.x,y:move.y};
   const maxSpeed=Math.max(...playerParts.map(part=>speedFromMass(part.mass)),1.15);
-  const targetX=move.x*maxSpeed;
-  const targetY=move.y*maxSpeed;
-  const lerp=move.x!==0||move.y!==0?0.16:0.08;
-  moveVelocity.x+=(targetX-moveVelocity.x)*lerp;
-  moveVelocity.y+=(targetY-moveVelocity.y)*lerp;
+  if(move.x!==0||move.y!==0){
+    const targetX=move.x*maxSpeed;
+    const targetY=move.y*maxSpeed;
+    moveVelocity.x+=(targetX-moveVelocity.x)*0.2;
+    moveVelocity.y+=(targetY-moveVelocity.y)*0.2;
+  }else{
+    moveVelocity.x*=0.965;
+    moveVelocity.y*=0.965;
+  }
   if(Math.abs(moveVelocity.x)<.001)moveVelocity.x=0;
   if(Math.abs(moveVelocity.y)<.001)moveVelocity.y=0;
 
