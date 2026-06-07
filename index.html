@@ -880,18 +880,23 @@ function getMutationStageMass(mass){
   return PLAYER_MUTATIONS[index]?.mass||CONFIG.START_MASS;
 }
 function getMutationCameraZoom(mass){
-  const index=getPlayerMutationIndex(mass);
-  const currentStageMass=getMutationStageMass(mass);
-  const nextStageMass=PLAYER_MUTATIONS[index+1]?.mass||Math.max(currentStageMass*1.25,currentStageMass+1);
-  const stageProgress=PLAYER_MUTATIONS[index+1]
-    ? Math.max(0,Math.min(1,(mass-currentStageMass)/Math.max(1,nextStageMass-currentStageMass)))
-    : 1;
-
-  // Each mutation keeps the fish a bit larger on screen, while still growing
-  // a little more within the same stage.
-  const stageBaseZoom=1+(index*.025);
-  const stageGrowthZoom=stageProgress*.012;
-  return Math.min(1.12,stageBaseZoom+stageGrowthZoom);
+  const stops=[
+    {mass:0,zoom:1.00},
+    {mass:100,zoom:0.95},
+    {mass:250,zoom:0.90},
+    {mass:500,zoom:0.85},
+    {mass:1000,zoom:0.80}
+  ];
+  if(mass<=stops[0].mass)return stops[0].zoom;
+  for(let i=0;i<stops.length-1;i++){
+    const a=stops[i];
+    const b=stops[i+1];
+    if(mass<=b.mass){
+      const t=(mass-a.mass)/Math.max(1,b.mass-a.mass);
+      return a.zoom+(b.zoom-a.zoom)*t;
+    }
+  }
+  return stops[stops.length-1].zoom;
 }
 function formatTime(seconds){
   const total=Math.floor(seconds);
