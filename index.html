@@ -882,10 +882,10 @@ function getMutationStageMass(mass){
 function getMutationCameraZoom(mass){
   const stops=[
     {mass:0,zoom:1.00},
-    {mass:100,zoom:0.95},
-    {mass:250,zoom:0.90},
-    {mass:500,zoom:0.85},
-    {mass:1000,zoom:0.80}
+    {mass:100,zoom:0.93},
+    {mass:250,zoom:0.87},
+    {mass:500,zoom:0.81},
+    {mass:1000,zoom:0.75}
   ];
   if(mass<=stops[0].mass)return stops[0].zoom;
   for(let i=0;i<stops.length-1;i++){
@@ -1557,7 +1557,7 @@ function getCamera(){
   }
 
   const mutationZoom=getMutationCameraZoom(getTotalPlayerMass());
-  const spreadZoom=Math.max(.35,Math.min(1,Math.min(canvas.width,canvas.height)/(spread+260)));
+  const spreadZoom=Math.max(.32,Math.min(1,Math.min(canvas.width,canvas.height)/(spread+220)));
   const zoom=Math.min(mutationZoom,spreadZoom);
 
   const viewWidth=canvas.width/zoom;
