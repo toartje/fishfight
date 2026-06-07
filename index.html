@@ -858,6 +858,7 @@ let musicEnabled=false;
 let vibrationEnabled=true;
 let currentUnlockKey=null;
 let lastPlayerDir={x:1,y:0};
+let moveVelocity={x:0,y:0};
 
 const player={x:world.width/2,y:world.height/2,mass:CONFIG.START_MASS,color:"#38bdf8"};
 let cameraState={x:player.x,y:player.y,zoom:1};
@@ -878,8 +879,18 @@ function getMutationStageMass(mass){
   return PLAYER_MUTATIONS[index]?.mass||CONFIG.START_MASS;
 }
 function getMutationCameraZoom(mass){
-  const stageMass=getMutationStageMass(mass);
-  return Math.min(1,radiusFromMass(CONFIG.START_MASS)/radiusFromMass(stageMass));
+  const index=getPlayerMutationIndex(mass);
+  const currentStageMass=getMutationStageMass(mass);
+  const nextStageMass=PLAYER_MUTATIONS[index+1]?.mass||Math.max(currentStageMass*1.25,currentStageMass+1);
+  const stageProgress=PLAYER_MUTATIONS[index+1]
+    ? Math.max(0,Math.min(1,(mass-currentStageMass)/Math.max(1,nextStageMass-currentStageMass)))
+    : 1;
+
+  // Each mutation keeps the fish a bit larger on screen, while still growing
+  // a little more within the same stage.
+  const stageBaseZoom=1+(index*.06);
+  const stageGrowthZoom=stageProgress*.035;
+  return Math.min(1.35,stageBaseZoom+stageGrowthZoom);
 }
 function formatTime(seconds){
   const total=Math.floor(seconds);
@@ -1386,6 +1397,7 @@ function startGame(){
   gameOverScreen.style.display="none";
   joystickBase.style.display="block";
   actionButtons.style.display="flex";
+  moveVelocity={x:0,y:0};
 
   playerName=nameInput.value.trim()||"YOU";
   player.color=selectedSkin.color||"#38bdf8";
@@ -1441,6 +1453,7 @@ function returnToMenu(){
 
 function gameOver(){
   running=false;
+  moveVelocity={x:0,y:0};
   vibrate([220,80,220]);
 
   finalScore.textContent=Math.floor(getTotalPlayerMass());
@@ -1597,11 +1610,20 @@ function mergePlayerParts(){
 function updatePlayer(){
   const move=getMoveVector();
   if(Math.hypot(move.x,move.y)>0.001)lastPlayerDir={x:move.x,y:move.y};
+  const maxSpeed=Math.max(...playerParts.map(part=>speedFromMass(part.mass)),1.15);
+  const targetX=move.x*maxSpeed;
+  const targetY=move.y*maxSpeed;
+  const lerp=move.x!==0||move.y!==0?0.16:0.08;
+  moveVelocity.x+=(targetX-moveVelocity.x)*lerp;
+  moveVelocity.y+=(targetY-moveVelocity.y)*lerp;
+  if(Math.abs(moveVelocity.x)<.001)moveVelocity.x=0;
+  if(Math.abs(moveVelocity.y)<.001)moveVelocity.y=0;
 
   for(const part of playerParts){
     const speed=speedFromMass(part.mass);
-    part.x+=move.x*speed;
-    part.y+=move.y*speed;
+    const moveScale=speed/maxSpeed;
+    part.x+=moveVelocity.x*moveScale;
+    part.y+=moveVelocity.y*moveScale;
     part.x+=part.vx;
     part.y+=part.vy;
     part.vx*=.92;
@@ -2322,7 +2344,7 @@ function draw(){
   const targetCamera=getCamera();
   cameraState.x+=(targetCamera.x-cameraState.x)*.12;
   cameraState.y+=(targetCamera.y-cameraState.y)*.12;
-  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.12;
+  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.075;
   if(Math.abs(targetCamera.x-cameraState.x)<.05)cameraState.x=targetCamera.x;
   if(Math.abs(targetCamera.y-cameraState.y)<.05)cameraState.y=targetCamera.y;
   if(Math.abs(targetCamera.zoom-cameraState.zoom)<.001)cameraState.zoom=targetCamera.zoom;
