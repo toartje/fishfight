@@ -100,6 +100,10 @@ button{cursor:pointer}
   transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;
   z-index:3;
 }
+.ghostModeBtn{
+  visibility:hidden;
+  pointer-events:none;
+}
 .modeBtn::before{
   content:"";
   position:absolute;
@@ -159,6 +163,13 @@ button{cursor:pointer}
   font-size:64px;
   line-height:1;
   text-align:center;
+}
+#collectionModeNote{
+  margin:8px 0 0;
+  font-size:15px;
+  line-height:1.35;
+  text-align:center;
+  opacity:.82;
 }
 .singlePlayerBack{
   position:absolute;
@@ -228,11 +239,40 @@ button{cursor:pointer}
 .collectionHeader{display:flex;gap:16px;align-items:center;margin-bottom:18px}
 .backBtn{
   margin:0;
-  padding:12px 18px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.24);
-  background:rgba(255,255,255,.12);
+  width:84px;
+  min-width:84px;
+  height:52px;
+  padding:0;
+  border-radius:18px;
+  border:3px solid rgba(255,255,255,.78);
+  background:linear-gradient(180deg,#8bf13a,#56be19 48%,#2f8d10 100%);
   color:#fff;
+  font-weight:900;
+  font-size:0;
+  box-shadow:0 9px 0 rgba(4,15,37,.82),0 18px 34px rgba(4,15,37,.32);
+  text-shadow:0 2px 0 rgba(0,0,0,.42);
+  position:relative;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.backBtn::before{
+  content:"";
+  position:absolute;
+  inset:4px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.22);
+  pointer-events:none;
+}
+.backBtn::after{
+  content:"";
+  display:block;
+  width:52px;
+  height:30px;
+  margin:0 auto;
+  background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 60'%3E%3Cpath d='M10 30C25 12 44 6 62 6C76 6 90 11 103 21C107 24 111 27 114 30C111 33 107 36 103 39C90 49 76 54 62 54C44 54 25 48 10 30Z' fill='%23fff'/%3E%3Cpath d='M101 21L118 5V55L101 39Z' fill='%23fff'/%3E%3Cpath d='M61 7L66 1L70 8Z' fill='%23fff'/%3E%3Cpath d='M61 53L66 59L70 52Z' fill='%23fff'/%3E%3Ccircle cx='42' cy='24' r='4.2' fill='%23fff'/%3E%3C/svg%3E");
+  filter:none;
 }
 .collectionHeader h2{margin:0;font-size:32px}
 .collectionHeader p{margin:4px 0 0;opacity:.82}
@@ -323,7 +363,8 @@ button{cursor:pointer}
 .mapCardState{font-size:12px;opacity:.85}
 .fishSkinRow{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:flex-start;}
 .fishTypeBtn{border-radius:22px;min-height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px 16px;text-align:center;white-space:normal;min-width:150px;flex:1 1 180px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);}
-.fishTypeBtn img{width:72px;height:72px;object-fit:contain;}
+.fishTypeBtn img{width:72px;height:72px;object-fit:contain;transform:scaleX(-1);transform-origin:center;}
+.fishTypeBtn[data-fish-type="hengelaar"] img{transform:none;}
 .fishTypeBtn span{display:block;font-size:14px;line-height:1.2;}
 .fishTypeBtn.skinSelected{border-color:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.35)}
 .mapGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:stretch;}
@@ -331,7 +372,13 @@ button{cursor:pointer}
 .mapGrid .mapCard[data-map="reef"]{background-image:linear-gradient(180deg,rgba(103,232,249,.35),rgba(15,23,42,.92)),url("assets/reef-background.png");background-size:contain;background-repeat:no-repeat;background-position:top center;}
 .mapGrid .mapCard[data-map="scrap"]{background:linear-gradient(180deg,rgba(251,191,36,.18),rgba(31,41,55,.55))}
 .mapGrid .mapCard[data-map="ember"]{background:linear-gradient(180deg,rgba(248,113,113,.16),rgba(59,7,7,.55))}
-
+.multiplayerStage{position:relative}
+.multiplayerBack{
+  position:absolute;
+  left:clamp(18px,4vw,52px);
+  top:clamp(18px,4vh,28px);
+  z-index:4;
+}
 .centerMenuWrap{max-height:calc(100vh - 48px);overflow-y:auto;}
 .singlePlayerPanel{max-height:calc(100vh - 116px);overflow-y:auto;}
 
@@ -451,11 +498,26 @@ button{cursor:pointer}
   .singlePlayerHeader h2{
     font-size:38px;
   }
+  #collectionModeNote{
+    font-size:13px;
+  }
   .singlePlayerBack{
     top:0;
     left:0;
     transform:none;
     position:absolute;
+  }
+  .multiplayerBack{
+    top:0;
+    left:0;
+    transform:none;
+    position:absolute;
+  }
+  .backBtn{
+    width:80px;
+    min-width:80px;
+    height:48px;
+    border-radius:16px;
   }
   .simpleSkin{
     width:54px;
@@ -499,8 +561,11 @@ button{cursor:pointer}
     <div class="centerMenuWrap">
       <div class="singlePlayerPanel">
         <div class="singlePlayerHeader">
-          <button id="backToHomeBtn" class="backBtn singlePlayerBack" type="button">&lt;- Terug</button>
-          <h2>Single Player</h2>
+          <button id="backToHomeBtn" class="backBtn singlePlayerBack" type="button" aria-label="Terug"></button>
+          <div>
+            <h2 id="collectionTitle">Single Player</h2>
+            <p id="collectionModeNote">Kies naam, vis en map.</p>
+          </div>
         </div>
 
         <div class="singlePlayerSection">
@@ -539,7 +604,7 @@ button{cursor:pointer}
           </div>
         </div>
 
-        <button class="modeBtn primary simpleStart" type="button" onclick="startGame()">Start</button>
+        <button id="startGameBtn" class="modeBtn primary simpleStart" type="button" onclick="startGame()">Start</button>
 
         <div class="collectionInfo" style="display:none">
           <div class="collectionInfoBadge">Details</div>
@@ -552,19 +617,22 @@ button{cursor:pointer}
     </div>
   </div>
 
-  <div id="multiplayerPage" class="menuPage hidden menuPanel">
-    <div class="collectionHeader">
-      <button class="backBtn" type="button" onclick="showMainMenu()">&lt;- Terug</button>
-      <div>
-        <h2>Multiplayer</h2>
-        <p>Dit scherm staat klaar voor later. Hier komt je online menu.</p>
+  <div id="multiplayerPage" class="menuPage hidden">
+    <div class="homeStage multiplayerStage">
+      <button class="backBtn multiplayerBack" type="button" onclick="showMainMenu()" aria-label="Terug"></button>
+      <h1 class="homeTitle">Multiplayer</h1>
+      <div class="modePanel">
+        <button id="openArenaModeBtn" class="modeBtn secondary" type="button">Open Arena</button>
+        <button id="fishRoyaleModeBtn" class="modeBtn tertiary" type="button">Fish Royale</button>
+        <button class="modeBtn tertiary ghostModeBtn" type="button" tabindex="-1" aria-hidden="true"></button>
       </div>
+      <div class="homeSpacer"></div>
     </div>
   </div>
 
   <div id="settingsPage" class="menuPage hidden menuPanel">
     <div class="collectionHeader">
-      <button class="backBtn" type="button" onclick="showMainMenu()">&lt;- Terug</button>
+      <button class="backBtn" type="button" onclick="showMainMenu()" aria-label="Terug"></button>
       <div>
         <h2>Settings</h2>
         <p>Hier kan later je aparte instellingenmenu komen.</p>
@@ -630,6 +698,11 @@ const multiplayerBtn=document.getElementById("multiplayerBtn");
 const settingsBtn=document.getElementById("settingsBtn");
 const backToHomeBtn=document.getElementById("backToHomeBtn");
 const nameInput=document.getElementById("nameInput");
+const collectionTitle=document.getElementById("collectionTitle");
+const collectionModeNote=document.getElementById("collectionModeNote");
+const startGameBtn=document.getElementById("startGameBtn");
+const openArenaModeBtn=document.getElementById("openArenaModeBtn");
+const fishRoyaleModeBtn=document.getElementById("fishRoyaleModeBtn");
 
 const collectionInfoTitle=document.getElementById("collectionInfoTitle");
 const collectionInfoText=document.getElementById("collectionInfoText");
@@ -661,6 +734,28 @@ const joystickStick=document.getElementById("joystickStick");
 const actionButtons=document.getElementById("actionButtons");
 const splitBtn=document.getElementById("splitBtn");
 const fireBtn=document.getElementById("fireBtn");
+
+let selectedPlayMode="single";
+let collectionReturnPage="home";
+let currentRunMode="single";
+
+const PLAY_MODE_META={
+  single:{
+    title:"Single Player",
+    note:"Kies naam, vis en map.",
+    returnPage:"home"
+  },
+  open:{
+    title:"Open Arena",
+    note:"Kies naam, vis en map voor de open multiplayer arena.",
+    returnPage:"multiplayer"
+  },
+  royale:{
+    title:"Fish Royale",
+    note:"Kies naam, vis en map voor de battle royale / ranked arena.",
+    returnPage:"multiplayer"
+  }
+};
 
 /* -------------------------------------------------------------------------- */
 /* Config and constants                                                       */
@@ -1022,14 +1117,36 @@ function showMainMenu(){
   showMenuPage("home");
 }
 
-function startSinglePlayer(){
+function applyCollectionMode(mode){
+  selectedPlayMode=mode in PLAY_MODE_META?mode:"single";
+  const meta=PLAY_MODE_META[selectedPlayMode];
+  if(collectionTitle)collectionTitle.textContent=meta.title;
+  if(collectionModeNote)collectionModeNote.textContent=meta.note;
+  if(startGameBtn)startGameBtn.textContent="Start";
+  collectionReturnPage=meta.returnPage;
+}
+
+function showCollectionMenu(mode="single"){
   showMenuPage("collection");
+  applyCollectionMode(mode);
   renderUnlockStates();
   setCollectionInfo("Beweeg over een item","Je ziet hier de opdracht, status en voortgang.","");
 }
 
+function startSinglePlayer(){
+  showCollectionMenu("single");
+}
+
 function showMultiplayerMenu(){
   showMenuPage("multiplayer");
+}
+
+function showOpenArenaMenu(){
+  showCollectionMenu("open");
+}
+
+function showFishRoyaleMenu(){
+  showCollectionMenu("royale");
 }
 
 function showSettingsMenu(){
@@ -1234,7 +1351,12 @@ function setupCollectionUI(){
   singlePlayerBtn.addEventListener("click",startSinglePlayer);
   multiplayerBtn.addEventListener("click",showMultiplayerMenu);
   settingsBtn.addEventListener("click",showSettingsMenu);
-  backToHomeBtn.addEventListener("click",showMainMenu);
+  backToHomeBtn.addEventListener("click",()=>{
+    if(collectionReturnPage==="multiplayer")showMultiplayerMenu();
+    else showMainMenu();
+  });
+  if(openArenaModeBtn)openArenaModeBtn.addEventListener("click",showOpenArenaMenu);
+  if(fishRoyaleModeBtn)fishRoyaleModeBtn.addEventListener("click",showFishRoyaleMenu);
 
   if(musicIconBtn){
     musicIconBtn.addEventListener("click",()=>{
@@ -1382,6 +1504,7 @@ function resolveDecorCollision(entity){
 /* Game state transitions                                                     */
 /* -------------------------------------------------------------------------- */
 function startGame(){
+  currentRunMode=selectedPlayMode;
   if(!isMapUnlocked(activeMapId))setActiveMap("reef");
   else setActiveMap(activeMapId,false);
   // ensure the starting mutation sprite for the selected fish is loaded on mobile
