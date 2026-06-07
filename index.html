@@ -889,9 +889,9 @@ function getMutationCameraZoom(mass){
 
   // Each mutation keeps the fish a bit larger on screen, while still growing
   // a little more within the same stage.
-  const stageBaseZoom=1+(index*.04);
-  const stageGrowthZoom=stageProgress*.02;
-  return Math.min(1.22,stageBaseZoom+stageGrowthZoom);
+  const stageBaseZoom=1+(index*.025);
+  const stageGrowthZoom=stageProgress*.012;
+  return Math.min(1.12,stageBaseZoom+stageGrowthZoom);
 }
 function formatTime(seconds){
   const total=Math.floor(seconds);
@@ -1616,11 +1616,11 @@ function updatePlayer(){
   if(move.x!==0||move.y!==0){
     const targetX=move.x*maxSpeed;
     const targetY=move.y*maxSpeed;
-    moveVelocity.x+=(targetX-moveVelocity.x)*0.2;
-    moveVelocity.y+=(targetY-moveVelocity.y)*0.2;
+    moveVelocity.x+=(targetX-moveVelocity.x)*0.18;
+    moveVelocity.y+=(targetY-moveVelocity.y)*0.18;
   }else{
-    moveVelocity.x*=0.9;
-    moveVelocity.y*=0.9;
+    moveVelocity.x*=0.94;
+    moveVelocity.y*=0.94;
   }
   if(Math.abs(moveVelocity.x)<.01)moveVelocity.x=0;
   if(Math.abs(moveVelocity.y)<.01)moveVelocity.y=0;
@@ -2350,7 +2350,7 @@ function draw(){
   const targetCamera=getCamera();
   cameraState.x+=(targetCamera.x-cameraState.x)*.12;
   cameraState.y+=(targetCamera.y-cameraState.y)*.12;
-  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.075;
+  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.095;
   if(Math.abs(targetCamera.x-cameraState.x)<.05)cameraState.x=targetCamera.x;
   if(Math.abs(targetCamera.y-cameraState.y)<.05)cameraState.y=targetCamera.y;
   if(Math.abs(targetCamera.zoom-cameraState.zoom)<.001)cameraState.zoom=targetCamera.zoom;
