@@ -4,15 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
 <title>FishFight</title>
-<script>
-(function(){
-  const isMobile=/Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent);
-  const isMobileBuild=location.pathname.toLowerCase().includes("fishfight-mobile-full.html");
-  if(isMobile && !isMobileBuild && !location.search.includes("desktop=1")){
-    location.replace("fishfight-mobile-full.html");
-  }
-})();
-</script>
 <style>
 /* Base */
 *{box-sizing:border-box}
