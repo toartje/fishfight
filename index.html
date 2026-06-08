@@ -683,18 +683,11 @@ button{cursor:pointer}
         <button class="modeBtn tertiary ghostModeBtn" type="button" tabindex="-1" aria-hidden="true"></button>
     </div>
     <div class="serverPanel" style="width:min(760px,92vw);z-index:3">
-      <div>
-        <span class="serverLabel">Casual server</span>
-        <div class="serverRow">
-          <input id="serverUrlInput" class="serverInput" type="url" spellcheck="false" placeholder="wss://jouw-server.example/ws" />
-          <button id="connectServerBtn" class="modeBtn primary" type="button" style="width:auto;min-width:190px;padding-inline:22px">Join</button>
-        </div>
-      </div>
       <div class="serverStatus">
         <span id="serverStatusPill" class="statusPill offline">Offline</span>
-        <span id="serverStatusText">Nog geen server verbonden. Zet hier straks je altijd-open casual lobby neer.</span>
+        <span id="serverStatusText">Casual mode verbindt automatisch met de live server zodra je op Start duwt.</span>
       </div>
-      <p class="serverHelp">GitHub Pages kan alleen de browser hosten. De spelerwereld zelf moet dus draaien op een losse server die via WebSocket open blijft, zodat mensen kunnen joinen en verlaten zonder dat de lobby verdwijnt.</p>
+      <p class="serverHelp">Spelers hoeven geen serveradres in te vullen. De game gebruikt automatisch jouw live casual server op de achtergrond.</p>
     </div>
     <div class="homeSpacer"></div>
   </div>
@@ -773,8 +766,6 @@ const collectionModeNote=document.getElementById("collectionModeNote");
 const startGameBtn=document.getElementById("startGameBtn");
 const openArenaModeBtn=document.getElementById("openArenaModeBtn");
 const fishRoyaleModeBtn=document.getElementById("fishRoyaleModeBtn");
-const serverUrlInput=document.getElementById("serverUrlInput");
-const connectServerBtn=document.getElementById("connectServerBtn");
 const serverStatusPill=document.getElementById("serverStatusPill");
 const serverStatusText=document.getElementById("serverStatusText");
 
@@ -822,7 +813,7 @@ let lastMultiplayerSync=0;
 let multiplayerReconnectTimer=null;
 let multiplayerIntentionalClose=false;
 const MULTIPLAYER_SERVER_KEY="fishfight_server_url_v1";
-const DEFAULT_SERVER_URL="wss://jouw-server.example/ws";
+const DEFAULT_SERVER_URL="wss://fishfight.onrender.com";
 
 const PLAY_MODE_META={
   single:{
@@ -1224,17 +1215,11 @@ function startSinglePlayer(){
 
 function showMultiplayerMenu(){
   showMenuPage("multiplayer");
-  if(serverUrlInput){
-    serverUrlInput.value=localStorage.getItem(MULTIPLAYER_SERVER_KEY)||DEFAULT_SERVER_URL;
-    serverUrlInput.focus();
-    serverUrlInput.select();
-  }
   updateMultiplayerStatus(multiplayerConnected?"online":multiplayerConnecting?"connecting":"offline");
 }
 
 function showOpenArenaMenu(){
-  selectedPlayMode="open";
-  startGame();
+  showCollectionMenu("open");
 }
 
 function showFishRoyaleMenu(){
@@ -1449,20 +1434,6 @@ function setupCollectionUI(){
   });
 if(openArenaModeBtn)openArenaModeBtn.addEventListener("click",showOpenArenaMenu);
 if(fishRoyaleModeBtn)fishRoyaleModeBtn.addEventListener("click",showFishRoyaleMenu);
-if(connectServerBtn)connectServerBtn.addEventListener("click",()=>{
-  selectedPlayMode="open";
-  startGame();
-});
-if(serverUrlInput){
-  serverUrlInput.addEventListener("keydown",event=>{
-    if(event.key==="Enter"){
-      event.preventDefault();
-      selectedPlayMode="open";
-      startGame();
-    }
-  });
-}
-
 if(musicIconBtn){
     musicIconBtn.addEventListener("click",()=>{
       musicEnabled=!musicEnabled;
@@ -2721,7 +2692,7 @@ function updateMultiplayerStatus(state,message=""){
 
 function getCasualServerUrl(){
   const stored=localStorage.getItem(MULTIPLAYER_SERVER_KEY);
-  const raw=(serverUrlInput&&serverUrlInput.value.trim())||stored||DEFAULT_SERVER_URL;
+  const raw=stored||DEFAULT_SERVER_URL;
   if(!raw)return DEFAULT_SERVER_URL;
   if(/^https?:\/\//i.test(raw))return raw.replace(/^http:/i,"ws:").replace(/^https:/i,"wss:");
   if(/^wss?:\/\//i.test(raw))return raw;
@@ -2747,10 +2718,6 @@ function closeCasualServer(intentional=true){
 
 function connectCasualServer(){
   const url=getCasualServerUrl();
-  if(!url||url===DEFAULT_SERVER_URL){
-    updateMultiplayerStatus("offline","Zet eerst je eigen WebSocket-server-URL in. GitHub Pages zelf kan geen multiplayer server hosten.");
-    return;
-  }
   multiplayerIntentionalClose=false;
   localStorage.setItem(MULTIPLAYER_SERVER_KEY,url);
   closeCasualServer();
