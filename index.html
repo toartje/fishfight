@@ -384,6 +384,62 @@ button{cursor:pointer}
 
 /* Toggles / preview */
 .menuSettings{display:flex;gap:16px;align-items:center;margin-top:4px}
+.serverPanel{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  margin-top:18px;
+  padding:18px 20px 20px;
+  border-radius:22px;
+  background:linear-gradient(180deg,rgba(8,18,34,.45),rgba(5,12,25,.56));
+  border:1px solid rgba(255,255,255,.12);
+}
+.serverRow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.serverLabel{
+  display:block;
+  font-size:13px;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  opacity:.8;
+  margin-bottom:6px;
+}
+.serverInput{
+  flex:1 1 300px;
+  min-width:0;
+  padding:15px 16px;
+  border-radius:18px;
+  border:2px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  outline:none;
+}
+.serverInput::placeholder{color:rgba(255,255,255,.54)}
+.serverStatus{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:14px;
+  line-height:1.4;
+  color:rgba(255,255,255,.88);
+}
+.statusPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:92px;
+  padding:7px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  background:rgba(148,163,184,.22);
+  border:1px solid rgba(255,255,255,.16);
+}
+.statusPill.online{background:rgba(34,197,94,.22);border-color:rgba(34,197,94,.4)}
+.statusPill.connecting{background:rgba(250,204,21,.18);border-color:rgba(250,204,21,.36)}
+.statusPill.offline{background:rgba(248,113,113,.14);border-color:rgba(248,113,113,.32)}
+.serverHelp{margin:0;font-size:14px;line-height:1.5;opacity:.82}
 .iconToggle{
   width:54px;
   height:54px;
@@ -620,14 +676,28 @@ button{cursor:pointer}
   <div id="multiplayerPage" class="menuPage hidden">
     <div class="homeStage multiplayerStage">
       <button class="backBtn multiplayerBack" type="button" onclick="showMainMenu()" aria-label="Terug"></button>
-      <h1 class="homeTitle">Multiplayer</h1>
-      <div class="modePanel">
-        <button id="openArenaModeBtn" class="modeBtn secondary" type="button">Open Arena</button>
-        <button id="fishRoyaleModeBtn" class="modeBtn tertiary" type="button">Fish Royale</button>
+    <h1 class="homeTitle">Multiplayer</h1>
+    <div class="modePanel">
+        <button id="openArenaModeBtn" class="modeBtn secondary" type="button">Casual Online</button>
+        <button id="fishRoyaleModeBtn" class="modeBtn tertiary" type="button">Later / Ranked</button>
         <button class="modeBtn tertiary ghostModeBtn" type="button" tabindex="-1" aria-hidden="true"></button>
-      </div>
-      <div class="homeSpacer"></div>
     </div>
+    <div class="serverPanel" style="width:min(760px,92vw);z-index:3">
+      <div>
+        <span class="serverLabel">Casual server</span>
+        <div class="serverRow">
+          <input id="serverUrlInput" class="serverInput" type="url" spellcheck="false" placeholder="wss://jouw-server.example/ws" />
+          <button id="connectServerBtn" class="modeBtn primary" type="button" style="width:auto;min-width:190px;padding-inline:22px">Connect</button>
+        </div>
+      </div>
+      <div class="serverStatus">
+        <span id="serverStatusPill" class="statusPill offline">Offline</span>
+        <span id="serverStatusText">Nog geen server verbonden. Zet hier straks je altijd-open casual lobby neer.</span>
+      </div>
+      <p class="serverHelp">GitHub Pages kan alleen de browser hosten. De spelerwereld zelf moet dus draaien op een losse server die via WebSocket open blijft, zodat mensen kunnen joinen en verlaten zonder dat de lobby verdwijnt.</p>
+    </div>
+    <div class="homeSpacer"></div>
+  </div>
   </div>
 
   <div id="settingsPage" class="menuPage hidden menuPanel">
@@ -703,6 +773,10 @@ const collectionModeNote=document.getElementById("collectionModeNote");
 const startGameBtn=document.getElementById("startGameBtn");
 const openArenaModeBtn=document.getElementById("openArenaModeBtn");
 const fishRoyaleModeBtn=document.getElementById("fishRoyaleModeBtn");
+const serverUrlInput=document.getElementById("serverUrlInput");
+const connectServerBtn=document.getElementById("connectServerBtn");
+const serverStatusPill=document.getElementById("serverStatusPill");
+const serverStatusText=document.getElementById("serverStatusText");
 
 const collectionInfoTitle=document.getElementById("collectionInfoTitle");
 const collectionInfoText=document.getElementById("collectionInfoText");
@@ -738,6 +812,17 @@ const fireBtn=document.getElementById("fireBtn");
 let selectedPlayMode="single";
 let collectionReturnPage="home";
 let currentRunMode="single";
+let multiplayerSocket=null;
+let multiplayerConnected=false;
+let multiplayerConnecting=false;
+let multiplayerSessionId=null;
+let remotePlayers=[];
+let multiplayerPingMs=0;
+let lastMultiplayerSync=0;
+let multiplayerReconnectTimer=null;
+let multiplayerIntentionalClose=false;
+const MULTIPLAYER_SERVER_KEY="fishfight_server_url_v1";
+const DEFAULT_SERVER_URL="wss://jouw-server.example/ws";
 
 const PLAY_MODE_META={
   single:{
@@ -747,7 +832,7 @@ const PLAY_MODE_META={
   },
   open:{
     title:"Open Arena",
-    note:"Kies naam, vis en map voor de open multiplayer arena.",
+    note:"Kies naam, vis en map voor de casual online lobby.",
     returnPage:"multiplayer"
   },
   royale:{
@@ -1139,6 +1224,12 @@ function startSinglePlayer(){
 
 function showMultiplayerMenu(){
   showMenuPage("multiplayer");
+  if(serverUrlInput){
+    serverUrlInput.value=localStorage.getItem(MULTIPLAYER_SERVER_KEY)||DEFAULT_SERVER_URL;
+    serverUrlInput.focus();
+    serverUrlInput.select();
+  }
+  updateMultiplayerStatus(multiplayerConnected?"online":multiplayerConnecting?"connecting":"offline");
 }
 
 function showOpenArenaMenu(){
@@ -1355,10 +1446,19 @@ function setupCollectionUI(){
     if(collectionReturnPage==="multiplayer")showMultiplayerMenu();
     else showMainMenu();
   });
-  if(openArenaModeBtn)openArenaModeBtn.addEventListener("click",showOpenArenaMenu);
-  if(fishRoyaleModeBtn)fishRoyaleModeBtn.addEventListener("click",showFishRoyaleMenu);
+if(openArenaModeBtn)openArenaModeBtn.addEventListener("click",showOpenArenaMenu);
+if(fishRoyaleModeBtn)fishRoyaleModeBtn.addEventListener("click",showFishRoyaleMenu);
+if(connectServerBtn)connectServerBtn.addEventListener("click",()=>connectCasualServer());
+if(serverUrlInput){
+  serverUrlInput.addEventListener("keydown",event=>{
+    if(event.key==="Enter"){
+      event.preventDefault();
+      connectCasualServer();
+    }
+  });
+}
 
-  if(musicIconBtn){
+if(musicIconBtn){
     musicIconBtn.addEventListener("click",()=>{
       musicEnabled=!musicEnabled;
       updateMusicButtons();
@@ -1544,6 +1644,14 @@ function startGame(){
   bestRankReached=99;
   kingFrameCounter=0;
   foodEatenThisGame=0;
+  remotePlayers=[];
+
+  if(currentRunMode==="open"){
+    connectCasualServer();
+  }else{
+    closeCasualServer();
+    updateMultiplayerStatus("offline");
+  }
 
   for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
   for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
@@ -1566,6 +1674,7 @@ function startGame(){
 
 function returnToMenu(){
   running=false;
+  closeCasualServer();
   gameOverScreen.style.display="none";
   menu.style.display="flex";
   joystickBase.style.display="none";
@@ -2151,6 +2260,15 @@ function getLeaderInfo(){
 function updateLeaderboard(){
   const entries=bots.map(bot=>({type:"bot",ref:bot,name:bot.name,mass:bot.mass}));
   if(playerParts.length)entries.push({type:"player",ref:null,name:playerName,mass:getTotalPlayerMass()});
+  for(const remote of remotePlayers){
+    if(remote.id===multiplayerSessionId)continue;
+    entries.push({
+      type:"remote",
+      ref:remote,
+      name:remote.name||"Guest",
+      mass:Number(remote.mass)||CONFIG.START_MASS
+    });
+  }
   entries.sort((a,b)=>b.mass-a.mass);
 
   leaderboardList.innerHTML="";
@@ -2506,6 +2624,24 @@ function draw(){
   for(const bot of bots){
     drawPufferfish(ctx,bot.x,bot.y,radiusFromMass(bot.mass),bot.color,bot.name,null,"white",leader&&leader.type==="bot"&&leader.ref===bot,bot.mass,bot.mass,bot.dx,bot.fishType);
   }
+  for(const remote of remotePlayers){
+    if(remote.id===multiplayerSessionId)continue;
+    drawPufferfish(
+      ctx,
+      remote.x,
+      remote.y,
+      radiusFromMass(remote.mass||CONFIG.START_MASS),
+      remote.color||"#38bdf8",
+      remote.name||"Guest",
+      remote.skin||null,
+      remote.nameColor||"white",
+      remote.leader||false,
+      null,
+      remote.mass||CONFIG.START_MASS,
+      remote.dirX||0,
+      remote.fishType||selectedFishType
+    );
+  }
   for(const part of playerParts){
     // Do not render the player's own mass above the part (it's shown in the HUD at top-left)
     drawPufferfish(ctx,part.x,part.y,radiusFromMass(part.mass),player.color,playerName,selectedSkin,selectedNameColor,leader&&leader.type==="player",null,part.mass,lastPlayerDir.x,selectedFishType);
@@ -2531,9 +2667,156 @@ function loop(){
     updateLeaderboard();
     updatePlayerStats();
     drawMinimap();
+    syncCasualServer();
   }
   draw();
   requestAnimationFrame(loop);
+}
+
+function syncCasualServer(){
+  if(!multiplayerConnected||!multiplayerSocket||multiplayerSocket.readyState!==WebSocket.OPEN)return;
+  const now=performance.now();
+  if(now-lastMultiplayerSync<80)return;
+  lastMultiplayerSync=now;
+  const mainPart=getMainPart();
+  if(!mainPart)return;
+  multiplayerSocket.send(JSON.stringify({
+    type:"update",
+    id:multiplayerSessionId,
+    x:mainPart.x,
+    y:mainPart.y,
+    mass:getTotalPlayerMass(),
+    name:(playerName||"Guest").slice(0,24),
+    fishType:selectedFishType,
+    skin:selectedSkin,
+    color:player.color,
+    nameColor:selectedNameColor,
+    mapId:activeMapId,
+    dirX:lastPlayerDir.x,
+    dirY:lastPlayerDir.y,
+    ts:Date.now()
+  }));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Casual online multiplayer                                                  */
+/* -------------------------------------------------------------------------- */
+function updateMultiplayerStatus(state,message=""){
+  if(!serverStatusPill||!serverStatusText)return;
+  serverStatusPill.classList.remove("online","connecting","offline");
+  serverStatusPill.classList.add(state);
+  serverStatusPill.textContent=state==="online"?"Online":state==="connecting"?"Connecting":"Offline";
+  serverStatusText.textContent=message||
+    (state==="online"
+      ?`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`
+      :state==="connecting"
+        ?"Verbinden met de server..."
+        :"Nog geen server verbonden.");
+}
+
+function getCasualServerUrl(){
+  const stored=localStorage.getItem(MULTIPLAYER_SERVER_KEY);
+  return (serverUrlInput&&serverUrlInput.value.trim())||stored||DEFAULT_SERVER_URL;
+}
+
+function closeCasualServer(intentional=true){
+  multiplayerIntentionalClose=intentional;
+  multiplayerConnecting=false;
+  multiplayerConnected=false;
+  multiplayerSessionId=null;
+  remotePlayers=[];
+  lastMultiplayerSync=0;
+  if(multiplayerReconnectTimer){
+    clearTimeout(multiplayerReconnectTimer);
+    multiplayerReconnectTimer=null;
+  }
+  if(multiplayerSocket){
+    try{ multiplayerSocket.close(1000,"Leaving lobby"); }catch(e){}
+    multiplayerSocket=null;
+  }
+}
+
+function connectCasualServer(){
+  const url=getCasualServerUrl();
+  if(!url||url===DEFAULT_SERVER_URL){
+    updateMultiplayerStatus("offline","Zet eerst je eigen WebSocket-server-URL in. GitHub Pages zelf kan geen multiplayer server hosten.");
+    return;
+  }
+  multiplayerIntentionalClose=false;
+  localStorage.setItem(MULTIPLAYER_SERVER_KEY,url);
+  closeCasualServer();
+  multiplayerIntentionalClose=false;
+  multiplayerConnecting=true;
+  updateMultiplayerStatus("connecting","Verbinding maken met de casual server...");
+  try{
+    multiplayerSocket=new WebSocket(url);
+  }catch(err){
+    multiplayerConnecting=false;
+    updateMultiplayerStatus("offline","Deze server-URL kon niet worden geopend.");
+    return;
+  }
+  multiplayerSocket.onopen=()=>{
+    multiplayerConnecting=false;
+    multiplayerConnected=true;
+    multiplayerSessionId=`p-${Math.random().toString(36).slice(2,10)}`;
+    lastMultiplayerSync=0;
+    updateMultiplayerStatus("online","Verbonden. Als de server live state terugstuurt, zie je hier direct andere spelers.");
+    multiplayerSocket.send(JSON.stringify({
+      type:"join",
+      id:multiplayerSessionId,
+      name:(nameInput.value.trim()||"Guest").slice(0,24),
+      fishType:selectedFishType,
+      skin:selectedSkin,
+      mapId:activeMapId,
+      mode:"casual"
+    }));
+    if(running){
+      multiplayerSocket.send(JSON.stringify({
+        type:"ready",
+        id:multiplayerSessionId,
+        x:player.x,
+        y:player.y,
+        mass:getTotalPlayerMass()
+      }));
+    }
+  };
+  multiplayerSocket.onmessage=event=>{
+    try{
+      const packet=JSON.parse(event.data);
+      if(packet.type==="state"){
+        multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
+        remotePlayers=Array.isArray(packet.players)?packet.players:[];
+        if(packet.world&&packet.world.width&&packet.world.height){
+          world.width=packet.world.width;
+          world.height=packet.world.height;
+        }
+      }
+      if(packet.type==="session"){
+        multiplayerSessionId=packet.id||multiplayerSessionId;
+      }
+      updateMultiplayerStatus("online",packet.message||`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`);
+    }catch(err){}
+  };
+  multiplayerSocket.onclose=()=>{
+    const wasConnected=multiplayerConnected||multiplayerConnecting;
+    closeCasualServer(false);
+    if(running&&currentRunMode==="open"&&!multiplayerIntentionalClose){
+      if(!multiplayerReconnectTimer){
+        multiplayerReconnectTimer=setTimeout(()=>{
+          multiplayerReconnectTimer=null;
+          if(running&&currentRunMode==="open"&&!multiplayerConnected){
+            connectCasualServer();
+          }
+        },1500);
+      }
+      updateMultiplayerStatus("offline",wasConnected?"Verbinding verbroken. Je kunt opnieuw verbinden vanaf het menu.":"Geen verbinding met de casual server.");
+    }else{
+      updateMultiplayerStatus("offline");
+    }
+  };
+  multiplayerSocket.onerror=()=>{
+    updateMultiplayerStatus("offline","De server reageert niet of WebSocket is geblokkeerd.");
+  };
 }
 
 /* -------------------------------------------------------------------------- */
