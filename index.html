@@ -1046,19 +1046,28 @@ let persistentStats=loadPersistentStats();
 /* -------------------------------------------------------------------------- */
 function random(min,max){return Math.random()*(max-min)+min}
 function pick(list){return list[Math.floor(Math.random()*list.length)]}
-function radiusFromMass(mass){return Math.sqrt(mass)*6}
-function speedFromMass(mass){return Math.max(1.15,10/Math.pow(mass,.35))}
+function radiusFromMass(mass){return Math.sqrt(Math.max(1,mass))*5.0}
+function speedFromMass(mass){return Math.max(0.58,12/Math.pow(Math.max(1,mass),.39))}
+function getMassDecayPerSecond(mass){
+  if(mass<=100)return 0;
+  if(mass<=500)return 0.001;
+  if(mass<=1000)return 0.002;
+  if(mass<=2500)return 0.0035;
+  if(mass<=5000)return 0.005;
+  return 0.0075;
+}
 function getMutationStageMass(mass){
   const index=getPlayerMutationIndex(mass);
   return PLAYER_MUTATIONS[index]?.mass||CONFIG.START_MASS;
 }
 function getMutationCameraZoom(mass){
   const stops=[
-    {mass:0,zoom:1.00},
-    {mass:100,zoom:0.93},
-    {mass:250,zoom:0.87},
-    {mass:500,zoom:0.81},
-    {mass:1000,zoom:0.75}
+    {mass:0,zoom:1.08},
+    {mass:100,zoom:1.00},
+    {mass:500,zoom:0.90},
+    {mass:1000,zoom:0.82},
+    {mass:2500,zoom:0.70},
+    {mass:5000,zoom:0.60}
   ];
   if(mass<=stops[0].mass)return stops[0].zoom;
   for(let i=0;i<stops.length-1;i++){
@@ -2219,14 +2228,12 @@ function checkViruses(){
 
 function applyMassDecay(){
   for(const part of playerParts){
-    if(part.mass>=1500)part.mass=Math.max(CONFIG.START_MASS,part.mass-2/60);
-    else if(part.mass>=852)part.mass=Math.max(CONFIG.START_MASS,part.mass-1/60);
-    else if(part.mass>=302)part.mass=Math.max(CONFIG.START_MASS,part.mass-0.5/60);
+    const decay=getMassDecayPerSecond(part.mass);
+    if(decay>0)part.mass=Math.max(CONFIG.START_MASS,part.mass-part.mass*decay/60);
   }
   for(const bot of bots){
-    if(bot.mass>=1500)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-2/60);
-    else if(bot.mass>=852)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-1/60);
-    else if(bot.mass>=302)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-0.5/60);
+    const decay=getMassDecayPerSecond(bot.mass);
+    if(decay>0)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-bot.mass*decay/60);
   }
   updatePlayerCenter();
 }
@@ -2575,9 +2582,9 @@ function drawMinimap(){
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const targetCamera=getCamera();
-  cameraState.x+=(targetCamera.x-cameraState.x)*.12;
-  cameraState.y+=(targetCamera.y-cameraState.y)*.12;
-  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.095;
+  cameraState.x+=(targetCamera.x-cameraState.x)*.1;
+  cameraState.y+=(targetCamera.y-cameraState.y)*.1;
+  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.075;
   if(Math.abs(targetCamera.x-cameraState.x)<.05)cameraState.x=targetCamera.x;
   if(Math.abs(targetCamera.y-cameraState.y)<.05)cameraState.y=targetCamera.y;
   if(Math.abs(targetCamera.zoom-cameraState.zoom)<.001)cameraState.zoom=targetCamera.zoom;
@@ -2843,12 +2850,20 @@ function connectCasualServer(){
           playerParts[0].mass=player.mass;
         }
       }
-      if(packet.type==="session"){
-        multiplayerSessionId=packet.id||multiplayerSessionId;
+    if(packet.type==="session"){
+      multiplayerSessionId=packet.id||multiplayerSessionId;
+    }
+    if(packet.type==="eliminated"){
+      if(running&&currentRunMode==="open"){
+        updateMultiplayerStatus("offline","Je bent opgegeten door een andere speler.");
+        closeCasualServer(true);
+        gameOver();
+        return;
       }
-      updateMultiplayerStatus("online",packet.message||`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`);
-    }catch(err){}
-  };
+    }
+    updateMultiplayerStatus("online",packet.message||`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`);
+  }catch(err){}
+};
   multiplayerSocket.onclose=()=>{
     const wasConnected=multiplayerConnected||multiplayerConnecting;
     closeCasualServer(false);
