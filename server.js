@@ -189,6 +189,7 @@ function createPlayerState(sessionId, packet, room) {
     moveVelocity: { x: 0, y: 0 },
     parts: [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }],
     lastSeen: Date.now(),
+    dead: false,
     splitRequested: false,
     fireRequested: false,
     splitCooldown: 0,
@@ -274,6 +275,7 @@ function mergePlayerParts(player) {
 }
 
 function movePlayer(player, room) {
+  if (player.dead) return;
   const move = normalize(player.moveX, player.moveY);
   if (Math.hypot(move.x, move.y) > 0.001) {
     player.dirX = move.x;
@@ -314,6 +316,7 @@ function movePlayer(player, room) {
 }
 
 function splitPlayer(player) {
+  if (player.dead) return false;
   if (player.parts.length >= SPLIT_TUNING.MAX_PARTS) return false;
   const move = normalize(player.moveX || player.dirX || 1, player.moveY || player.dirY || 0);
   const snapshot = [...player.parts];
@@ -345,6 +348,7 @@ function splitPlayer(player) {
 }
 
 function firePellet(player, room) {
+  if (player.dead) return false;
   const part = getMainPart(player);
   if (!part || part.mass < 24) return false;
   const move = normalize(player.moveX || player.dirX || 1, player.moveY || player.dirY || 0);
@@ -364,6 +368,7 @@ function firePellet(player, room) {
 }
 
 function explodeOnVirus(player, part, virus) {
+  if (player.dead) return false;
   if (part.mass <= VIRUS_MASS * EAT_RATIO || player.parts.length >= SPLIT_TUNING.MAX_PARTS) return false;
   const totalMass = part.mass;
   const amount = Math.min(
@@ -562,14 +567,14 @@ function updatePellets(room) {
 
 function updateFoods(room) {
   for (const player of room.players.values()) {
+    if (player.dead) continue;
     for (const part of player.parts) {
       const playerRadius = radiusFromMass(part.mass);
       for (let i = room.foods.length - 1; i >= 0; i--) {
         const food = room.foods[i];
         const foodRadius = food.hitR || food.r;
         if (Math.hypot(part.x - food.x, part.y - food.y) < playerRadius + foodRadius) {
-          room.foods.splice(i, 1);
-          room.foods.push(createFood(room));
+          room.foods[i] = createFood(room);
           part.mass += food.points || 1;
         }
       }
@@ -582,8 +587,7 @@ function updateFoods(room) {
       const food = room.foods[i];
       const foodRadius = food.hitR || food.r;
       if (Math.hypot(bot.x - food.x, bot.y - food.y) < botRadius + foodRadius) {
-        room.foods.splice(i, 1);
-        room.foods.push(createFood(room));
+        room.foods[i] = createFood(room);
         bot.mass += food.points || 1;
       }
     }
@@ -621,6 +625,7 @@ function updateViruses(room) {
 function resolveEntityCollisions(room) {
   for (const bot of room.bots) {
     for (const player of room.players.values()) {
+      if (player.dead) continue;
       for (let j = player.parts.length - 1; j >= 0; j--) {
         const part = player.parts[j];
         const distance = Math.hypot(part.x - bot.x, part.y - bot.y);
@@ -637,9 +642,9 @@ function resolveEntityCollisions(room) {
             bot.mass += part.mass * 0.55;
             player.parts.splice(j, 1);
             if (!player.parts.length) {
-              const spawn = findSafeSpawn(room, 20);
-              player.parts = [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }];
-              updatePlayerCenter(player);
+              player.dead = true;
+              player.parts = [];
+              player.mass = 0;
             } else {
               updatePlayerCenter(player);
             }
@@ -654,6 +659,7 @@ function resolveEntityCollisions(room) {
     for (let j = i + 1; j < playerEntries.length; j++) {
       const a = playerEntries[i];
       const b = playerEntries[j];
+      if (a.dead || b.dead) continue;
       for (let ai = a.parts.length - 1; ai >= 0; ai--) {
         for (let bi = b.parts.length - 1; bi >= 0; bi--) {
           const pa = a.parts[ai];
@@ -663,21 +669,23 @@ function resolveEntityCollisions(room) {
             pa.mass += pb.mass * 0.55;
             b.parts.splice(bi, 1);
             if (!b.parts.length) {
-              const spawn = findSafeSpawn(room, 20);
-              b.parts = [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }];
+              b.dead = true;
+              b.parts = [];
+              b.mass = 0;
             }
             updatePlayerCenter(a);
-            updatePlayerCenter(b);
+            if (b.parts.length) updatePlayerCenter(b);
             break;
           }
           if (distance < Math.max(radiusFromMass(pa.mass), radiusFromMass(pb.mass)) * 0.72 && pb.mass > pa.mass * EAT_RATIO) {
             pb.mass += pa.mass * 0.55;
             a.parts.splice(ai, 1);
             if (!a.parts.length) {
-              const spawn = findSafeSpawn(room, 20);
-              a.parts = [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }];
+              a.dead = true;
+              a.parts = [];
+              a.mass = 0;
             }
-            updatePlayerCenter(a);
+            if (a.parts.length) updatePlayerCenter(a);
             updatePlayerCenter(b);
             break;
           }
@@ -698,6 +706,7 @@ function applyMassDecay(room) {
   };
 
   for (const player of room.players.values()) {
+    if (player.dead) continue;
     for (const part of player.parts) {
       const decay = apply(part.mass) / 60;
       if (decay > 0) part.mass = Math.max(START_MASS, part.mass - decay);
@@ -755,7 +764,8 @@ function serializeRoom(room) {
         vx: part.vx || 0,
         vy: part.vy || 0,
         mergeTimer: part.mergeTimer || 0
-      }))
+      })),
+      dead: Boolean(player.dead)
     }))
   };
 }
@@ -853,6 +863,7 @@ wss.on("connection", (ws) => {
           player.y = Math.max(0, Math.min(room.world.height, Number(packet.y)));
           player.parts = [{ x: player.x, y: player.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }];
           player.mass = START_MASS;
+          player.dead = false;
         }
       }
 
@@ -883,6 +894,7 @@ wss.on("connection", (ws) => {
     if (packet.type === "update") {
       const player = playersById.get(sessionId);
       if (!player) return;
+      if (player.dead) return;
       player.moveX = Number(packet.dirX) || 0;
       player.moveY = Number(packet.dirY) || 0;
       player.name = String(packet.name || player.name || "Guest").slice(0, 24);

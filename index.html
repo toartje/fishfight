@@ -2964,6 +2964,11 @@ function connectCasualServer(){
       updateRemoteRenderTargets(remotePlayers);
       const self=allPlayers.find(remote=>remote&&remote.id===multiplayerSessionId);
       if(self){
+        if(self.dead){
+          closeCasualServer(false);
+          if(running)gameOver();
+          return;
+        }
         player.color=self.color||player.color;
         playerName=self.name||playerName;
         selectedNameColor=self.nameColor||selectedNameColor;
