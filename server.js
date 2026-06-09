@@ -3,8 +3,14 @@ import { WebSocketServer } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
 const TICK_RATE_MS = 50;
+const WORLD = { width: 4200, height: 3600 };
+const FOOD_COUNT = 700;
+const BOT_COUNT = 40;
+const VIRUS_COUNT = 18;
 const START_MASS = 20;
+const VIRUS_MASS = 60;
 const EAT_RATIO = 1.15;
+const HAZARD_RESPAWN_MARGIN = 180;
 const SPLIT_TUNING = {
   MAX_PARTS: 16,
   MIN_MASS: 30,
@@ -14,10 +20,32 @@ const SPLIT_TUNING = {
 };
 
 const MAPS = {
-  reef: { world: { width: 4200, height: 3600 } },
-  scrap: { world: { width: 4600, height: 3400 } },
-  ember: { world: { width: 4000, height: 4000 } }
+  reef: {
+    world: { width: 4200, height: 3600 },
+    hazard: { kind: "urchin", color: "#22c55e", glow: "#bbf7d0" },
+    botNames: ["Diver", "Manta", "Tide", "Breeze", "Shell", "Ripple", "Shore", "Glow"],
+    botColors: ["#38bdf8", "#22c55e", "#fbbf24", "#a78bfa", "#f97316", "#f472b6"]
+  },
+  scrap: {
+    world: { width: 4600, height: 3400 },
+    hazard: { kind: "reefMine", color: "#ef4444", glow: "#fecaca" },
+    botNames: ["Drone", "Rust", "Relay", "Spark", "Gauge", "Patch", "Grinder", "Node"],
+    botColors: ["#fbbf24", "#38bdf8", "#f97316", "#9ca3af", "#ef4444", "#22c55e"]
+  },
+  ember: {
+    world: { width: 4000, height: 4000 },
+    hazard: { kind: "coralMine", color: "#f59e0b", glow: "#fed7aa" },
+    botNames: ["Ash", "Cinder", "Flint", "Nova", "Pike", "Rune", "Echo", "Blaze"],
+    botColors: ["#fb7185", "#f97316", "#facc15", "#ef4444", "#f8fafc", "#c084fc"]
+  }
 };
+
+const FOOD_CHAIN = [
+  { kind: "shrimp", points: 1, weight: 40, hitR: 8, drawScale: 1.0 },
+  { kind: "mussle", points: 1, weight: 30, hitR: 8.5, drawScale: 0.95 },
+  { kind: "crab", points: 2, weight: 20, hitR: 11, drawScale: 0.92 },
+  { kind: "seahorse", points: 3, weight: 10, hitR: 13, drawScale: 0.9 }
+];
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
@@ -39,6 +67,10 @@ function rand(min, max) {
   return Math.random() * (max - min) + min;
 }
 
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function radiusFromMass(mass) {
   return Math.sqrt(Math.max(0, mass)) * 5.7;
 }
@@ -56,6 +88,61 @@ function getRoomKey(mode, mapId) {
   return `${mode || "casual"}:${mapId || "reef"}`;
 }
 
+function createFood(room) {
+  const total = FOOD_CHAIN.reduce((sum, item) => sum + item.weight, 0);
+  let roll = Math.random() * total;
+  let style = FOOD_CHAIN[0];
+  for (const item of FOOD_CHAIN) {
+    roll -= item.weight;
+    if (roll <= 0) {
+      style = item;
+      break;
+    }
+  }
+  return {
+    kind: style.kind,
+    x: rand(0, room.world.width),
+    y: rand(0, room.world.height),
+    r: rand(4, 6),
+    hitR: style.hitR,
+    points: style.points,
+    drawScale: style.drawScale
+  };
+}
+
+function createVirus(room) {
+  return {
+    kind: room.map.hazard.kind,
+    x: rand(HAZARD_RESPAWN_MARGIN, room.world.width - HAZARD_RESPAWN_MARGIN),
+    y: rand(HAZARD_RESPAWN_MARGIN, room.world.height - HAZARD_RESPAWN_MARGIN),
+    mass: VIRUS_MASS,
+    r: radiusFromMass(VIRUS_MASS),
+    color: room.map.hazard.color,
+    glow: room.map.hazard.glow,
+    eaten: 0
+  };
+}
+
+function createBot(room) {
+  const mass = rand(20, 65);
+  return {
+    id: `bot-${Math.random().toString(36).slice(2, 10)}`,
+    name: pick(room.map.botNames),
+    x: rand(0, room.world.width),
+    y: rand(0, room.world.height),
+    mass,
+    color: pick(room.map.botColors),
+    fishType: "pufferfish",
+    dx: rand(-1, 1),
+    dy: rand(-1, 1),
+    changeTimer: rand(40, 160),
+    decisionTimer: rand(15, 45),
+    splitCooldown: rand(120, 260),
+    vx: 0,
+    vy: 0
+  };
+}
+
 function getRoom(roomKey, mapId = "reef") {
   let room = rooms.get(roomKey);
   if (room) return room;
@@ -66,11 +153,18 @@ function getRoom(roomKey, mapId = "reef") {
     mapId: MAPS[mapId] ? mapId : "reef",
     map,
     world: { ...map.world },
-    seed: `fishfight:${mapId || "reef"}:casual`,
     players: new Map(),
+    foods: [],
+    bots: [],
+    viruses: [],
+    pellets: [],
     tick: 0,
     lastBroadcastAt: 0
   };
+
+  for (let i = 0; i < FOOD_COUNT; i++) room.foods.push(createFood(room));
+  for (let i = 0; i < BOT_COUNT; i++) room.bots.push(createBot(room));
+  for (let i = 0; i < VIRUS_COUNT; i++) room.viruses.push(createVirus(room));
 
   rooms.set(roomKey, room);
   return room;
@@ -226,27 +320,311 @@ function splitPlayer(player) {
   return didSplit;
 }
 
-function applyMassDecay(room) {
-  const apply = (mass) => {
-    if (mass <= 100) return 0;
-    if (mass <= 500) return mass * 0.001;
-    if (mass <= 1000) return mass * 0.002;
-    if (mass <= 2500) return mass * 0.0035;
-    if (mass <= 5000) return mass * 0.005;
-    return mass * 0.0075;
-  };
+function firePellet(player, room) {
+  if (player.dead) return false;
+  const part = getMainPart(player);
+  if (!part || part.mass < 24) return false;
+  const move = normalize(player.moveX || player.dirX || 1, player.moveY || player.dirY || 0);
+  part.mass -= 3;
+  const radius = radiusFromMass(part.mass);
+  room.pellets.push({
+    x: part.x + move.x * (radius + 16),
+    y: part.y + move.y * (radius + 16),
+    vx: move.x * 12,
+    vy: move.y * 12,
+    mass: 3,
+    life: 150,
+    color: "#facc15"
+  });
+  updatePlayerCenter(player);
+  return true;
+}
 
-  for (const player of room.players.values()) {
-    if (player.dead) continue;
-    for (const part of player.parts) {
-      const decay = apply(part.mass) / 60;
-      if (decay > 0) part.mass = Math.max(START_MASS, part.mass - decay);
+function setBotDirection(bot, dx, dy, sharpness = 0.7) {
+  const next = normalize(dx, dy);
+  bot.dx = bot.dx * (1 - sharpness) + next.x * sharpness;
+  bot.dy = bot.dy * (1 - sharpness) + next.y * sharpness;
+}
+
+function botSplitToward(bot, target, room) {
+  const dx = target.x - bot.x;
+  const dy = target.y - bot.y;
+  const next = normalize(dx, dy);
+  const splitMass = bot.mass / 2;
+  bot.mass = splitMass;
+  room.bots.push({
+    id: `bot-${Math.random().toString(36).slice(2, 10)}`,
+    name: bot.name,
+    x: bot.x + next.x * 18,
+    y: bot.y + next.y * 18,
+    mass: splitMass,
+    color: bot.color,
+    fishType: bot.fishType,
+    dx: next.x,
+    dy: next.y,
+    changeTimer: 60,
+    decisionTimer: 20,
+    splitCooldown: 220,
+    vx: next.x * 12,
+    vy: next.y * 12
+  });
+  bot.splitCooldown = 220;
+}
+
+function decideBotBehavior(bot, room) {
+  let threat = null;
+  let threatDistance = Infinity;
+  let prey = null;
+  let preyScore = -Infinity;
+
+  const targets = [...room.players.values()].flatMap((player) =>
+    player.parts.map((part) => ({ ...part, owner: player, type: "player" }))
+  );
+
+  for (const target of targets) {
+    const distance = Math.hypot(target.x - bot.x, target.y - bot.y);
+    if (target.mass > bot.mass * EAT_RATIO && distance < 520 && distance < threatDistance) {
+      threat = target;
+      threatDistance = distance;
     }
-    updatePlayerCenter(player);
+    if (bot.mass > target.mass * EAT_RATIO && distance < 850) {
+      const score = target.mass - distance * 0.08;
+      if (score > preyScore) {
+        prey = target;
+        preyScore = score;
+      }
+    }
+  }
+
+  let nearbyVirus = null;
+  let nearbyVirusDistance = Infinity;
+  if (bot.mass > VIRUS_MASS * EAT_RATIO) {
+    for (const virus of room.viruses) {
+      const distance = Math.hypot(virus.x - bot.x, virus.y - bot.y);
+      if (distance < nearbyVirusDistance) {
+        nearbyVirus = virus;
+        nearbyVirusDistance = distance;
+      }
+    }
+  }
+
+  if (nearbyVirus && nearbyVirusDistance < 180) {
+    setBotDirection(bot, bot.x - nearbyVirus.x, bot.y - nearbyVirus.y, 0.85);
+    return;
+  }
+  if (threat && threatDistance < 520) {
+    setBotDirection(bot, bot.x - threat.x, bot.y - threat.y, 0.9);
+    return;
+  }
+  if (prey) {
+    setBotDirection(bot, prey.x - bot.x, prey.y - bot.y, 0.75);
+    const distance = Math.hypot(prey.x - bot.x, prey.y - bot.y);
+    if (bot.splitCooldown <= 0 && bot.mass >= 45 && bot.mass / 2 > prey.mass * EAT_RATIO && distance < 340) {
+      botSplitToward(bot, prey, room);
+    }
+    return;
+  }
+
+  let foodTarget = null;
+  let foodDistance = Infinity;
+  for (const food of room.foods) {
+    const distance = Math.hypot(food.x - bot.x, food.y - bot.y);
+    if (distance < foodDistance && distance < 480) {
+      foodTarget = food;
+      foodDistance = distance;
+    }
+  }
+  if (foodTarget) {
+    setBotDirection(bot, foodTarget.x - bot.x, foodTarget.y - bot.y, 0.6);
+    return;
+  }
+
+  if (bot.changeTimer <= 0 || Math.random() < 0.25) {
+    setBotDirection(bot, rand(-1, 1), rand(-1, 1), 0.35);
+    bot.changeTimer = rand(50, 150);
+  } else {
+    bot.changeTimer--;
   }
 }
 
-function resolvePlayerCollisions(room) {
+function updateBots(room) {
+  for (const bot of room.bots) {
+    bot.splitCooldown--;
+    bot.decisionTimer--;
+    if (bot.decisionTimer <= 0) {
+      decideBotBehavior(bot, room);
+      bot.decisionTimer = rand(18, 55);
+    }
+    const length = Math.hypot(bot.dx, bot.dy) || 1;
+    const speed = speedFromMass(bot.mass);
+    bot.x += (bot.dx / length) * speed;
+    bot.y += (bot.dy / length) * speed;
+    bot.x += bot.vx || 0;
+    bot.y += bot.vy || 0;
+    bot.vx = (bot.vx || 0) * 0.92;
+    bot.vy = (bot.vy || 0) * 0.92;
+    if (bot.x < 0 || bot.x > room.world.width) bot.dx *= -1;
+    if (bot.y < 0 || bot.y > room.world.height) bot.dy *= -1;
+    bot.x = Math.max(0, Math.min(room.world.width, bot.x));
+    bot.y = Math.max(0, Math.min(room.world.height, bot.y));
+  }
+}
+
+function updatePellets(room) {
+  for (let i = room.pellets.length - 1; i >= 0; i--) {
+    const pellet = room.pellets[i];
+    pellet.x += pellet.vx;
+    pellet.y += pellet.vy;
+    pellet.vx *= 0.96;
+    pellet.vy *= 0.96;
+    pellet.life--;
+    pellet.x = Math.max(0, Math.min(room.world.width, pellet.x));
+    pellet.y = Math.max(0, Math.min(room.world.height, pellet.y));
+
+    let hit = false;
+    for (const bot of room.bots) {
+      if (Math.hypot(bot.x - pellet.x, bot.y - pellet.y) < radiusFromMass(bot.mass)) {
+        bot.mass += pellet.mass;
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) {
+      for (const player of room.players.values()) {
+        for (const part of player.parts) {
+          if (Math.hypot(part.x - pellet.x, part.y - pellet.y) < radiusFromMass(part.mass)) {
+            part.mass += pellet.mass;
+            updatePlayerCenter(player);
+            hit = true;
+            break;
+          }
+        }
+        if (hit) break;
+      }
+    }
+
+    if (hit || pellet.life <= 0) room.pellets.splice(i, 1);
+  }
+}
+
+function updateFoods(room) {
+  for (const player of room.players.values()) {
+    if (player.dead) continue;
+    for (const part of player.parts) {
+      const playerRadius = radiusFromMass(part.mass);
+      for (let i = room.foods.length - 1; i >= 0; i--) {
+        const food = room.foods[i];
+        if (Math.hypot(part.x - food.x, part.y - food.y) < playerRadius + (food.hitR || food.r)) {
+          room.foods[i] = createFood(room);
+          part.mass += food.points || 1;
+        }
+      }
+    }
+  }
+
+  for (const bot of room.bots) {
+    const botRadius = radiusFromMass(bot.mass);
+    for (let i = room.foods.length - 1; i >= 0; i--) {
+      const food = room.foods[i];
+      if (Math.hypot(bot.x - food.x, bot.y - food.y) < botRadius + (food.hitR || food.r)) {
+        room.foods[i] = createFood(room);
+        bot.mass += food.points || 1;
+      }
+    }
+  }
+}
+
+function explodeOnVirus(player, part, virus, room) {
+  if (player.dead) return false;
+  if (part.mass <= VIRUS_MASS * EAT_RATIO || player.parts.length >= SPLIT_TUNING.MAX_PARTS) return false;
+  const totalMass = part.mass;
+  const amount = Math.min(
+    SPLIT_TUNING.MAX_PARTS - player.parts.length + 1,
+    Math.max(4, Math.floor(totalMass / 35))
+  );
+  const partMass = totalMass / amount;
+  const index = player.parts.indexOf(part);
+  if (index !== -1) player.parts.splice(index, 1);
+
+  for (let i = 0; i < amount; i++) {
+    const angle = (Math.PI * 2 * i) / amount;
+    player.parts.push({
+      x: part.x + Math.cos(angle) * 18,
+      y: part.y + Math.sin(angle) * 18,
+      mass: partMass,
+      vx: Math.cos(angle) * 8,
+      vy: Math.sin(angle) * 8,
+      mergeTimer: 300
+    });
+  }
+
+  virus.x = rand(HAZARD_RESPAWN_MARGIN, room.world.width - HAZARD_RESPAWN_MARGIN);
+  virus.y = rand(HAZARD_RESPAWN_MARGIN, room.world.height - HAZARD_RESPAWN_MARGIN);
+  virus.eaten = 0;
+  updatePlayerCenter(player);
+  return true;
+}
+
+function updateViruses(room) {
+  for (const virus of room.viruses) {
+    for (const player of room.players.values()) {
+      for (const part of [...player.parts]) {
+        if (Math.hypot(part.x - virus.x, part.y - virus.y) < radiusFromMass(part.mass) + virus.r && part.mass > VIRUS_MASS * EAT_RATIO) {
+          virus.eaten += 0.5;
+          if (virus.eaten >= VIRUS_MASS / 3) {
+            explodeOnVirus(player, part, virus, room);
+            break;
+          }
+        }
+      }
+    }
+    for (const bot of room.bots) {
+      if (Math.hypot(bot.x - virus.x, bot.y - virus.y) < radiusFromMass(bot.mass) + virus.r && bot.mass > VIRUS_MASS * EAT_RATIO) {
+        virus.eaten += 0.5;
+        if (virus.eaten >= VIRUS_MASS / 3) {
+          bot.mass = Math.max(START_MASS, bot.mass / 2);
+          bot.x = rand(HAZARD_RESPAWN_MARGIN, room.world.width - HAZARD_RESPAWN_MARGIN);
+          bot.y = rand(HAZARD_RESPAWN_MARGIN, room.world.height - HAZARD_RESPAWN_MARGIN);
+          virus.eaten = 0;
+          break;
+        }
+      }
+    }
+  }
+}
+
+function resolveEntityCollisions(room) {
+  for (const bot of room.bots) {
+    for (const player of room.players.values()) {
+      if (player.dead) continue;
+      for (let j = player.parts.length - 1; j >= 0; j--) {
+        const part = player.parts[j];
+        const distance = Math.hypot(part.x - bot.x, part.y - bot.y);
+        const botRadius = radiusFromMass(bot.mass);
+        const playerRadius = radiusFromMass(part.mass);
+        if (distance < Math.max(playerRadius, botRadius) * 0.75) {
+          if (part.mass > bot.mass * EAT_RATIO) {
+            part.mass += bot.mass * 0.55;
+            bot.mass = rand(20, 65);
+            bot.x = rand(0, room.world.width);
+            bot.y = rand(0, room.world.height);
+            updatePlayerCenter(player);
+          } else if (bot.mass > part.mass * EAT_RATIO) {
+            bot.mass += part.mass * 0.55;
+            player.parts.splice(j, 1);
+            if (!player.parts.length) {
+              player.dead = true;
+              player.parts = [];
+              player.mass = 0;
+            } else {
+              updatePlayerCenter(player);
+            }
+          }
+        }
+      }
+    }
+  }
+
   const playerEntries = [...room.players.values()];
   for (let i = 0; i < playerEntries.length; i++) {
     for (let j = i + 1; j < playerEntries.length; j++) {
@@ -288,14 +666,84 @@ function resolvePlayerCollisions(room) {
   }
 }
 
+function applyMassDecay(room) {
+  const apply = (mass) => {
+    if (mass <= 100) return 0;
+    if (mass <= 500) return mass * 0.001;
+    if (mass <= 1000) return mass * 0.002;
+    if (mass <= 2500) return mass * 0.0035;
+    if (mass <= 5000) return mass * 0.005;
+    return mass * 0.0075;
+  };
+
+  for (const player of room.players.values()) {
+    if (player.dead) continue;
+    for (const part of player.parts) {
+      const decay = apply(part.mass) / 60;
+      if (decay > 0) part.mass = Math.max(START_MASS, part.mass - decay);
+    }
+    updatePlayerCenter(player);
+  }
+  for (const bot of room.bots) {
+    const decay = apply(bot.mass) / 60;
+    if (decay > 0) bot.mass = Math.max(START_MASS, bot.mass - decay);
+  }
+}
+
+function maintainBotCount(room) {
+  while (room.bots.length < BOT_COUNT) room.bots.push(createBot(room));
+  while (room.bots.length > BOT_COUNT) room.bots.pop();
+}
+
+function createPlayerState(sessionId, packet, room) {
+  const spawn = findSafeSpawn(room, 20);
+  return {
+    id: sessionId,
+    name: String(packet.name || "Guest").slice(0, 24),
+    x: spawn.x,
+    y: spawn.y,
+    mass: START_MASS,
+    color: String(packet.color || "#38bdf8"),
+    nameColor: String(packet.nameColor || "white"),
+    fishType: String(packet.fishType || "pufferfish"),
+    skin: packet.skin || null,
+    dirX: 1,
+    dirY: 0,
+    moveX: 0,
+    moveY: 0,
+    moveVelocity: { x: 0, y: 0 },
+    parts: [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }],
+    lastSeen: Date.now(),
+    dead: false,
+    splitRequested: false,
+    fireRequested: false,
+    splitCooldown: 0,
+    fireCooldown: 0
+  };
+}
+
 function serializeRoom(room) {
   return {
     type: "state",
-    seed: room.seed,
+    world: room.world,
     room: room.key,
     mapId: room.mapId,
     tick: room.tick,
-    world: room.world,
+    seed: `fishfight:${room.mapId}:casual`,
+    foods: room.foods,
+    bots: room.bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      x: bot.x,
+      y: bot.y,
+      mass: bot.mass,
+      color: bot.color,
+      fishType: bot.fishType,
+      dx: bot.dx,
+      dy: bot.dy
+    })),
+    viruses: room.viruses,
+    pellets: room.pellets,
     players: [...room.players.values()].map((player) => ({
       id: player.id,
       name: player.name,
@@ -330,40 +778,28 @@ function broadcastRoom(room) {
   }
 }
 
-function createPlayerState(sessionId, packet, room) {
-  const spawn = findSafeSpawn(room, 20);
-  return {
-    id: sessionId,
-    name: String(packet.name || "Guest").slice(0, 24),
-    x: spawn.x,
-    y: spawn.y,
-    mass: START_MASS,
-    color: String(packet.color || "#38bdf8"),
-    nameColor: String(packet.nameColor || "white"),
-    fishType: String(packet.fishType || "pufferfish"),
-    skin: packet.skin || null,
-    dirX: 1,
-    dirY: 0,
-    moveX: 0,
-    moveY: 0,
-    moveVelocity: { x: 0, y: 0 },
-    parts: [{ x: spawn.x, y: spawn.y, mass: START_MASS, vx: 0, vy: 0, mergeTimer: 0 }],
-    lastSeen: Date.now(),
-    dead: false,
-    splitCooldown: 0,
-    fireCooldown: 0
-  };
-}
-
 function stepRoom(room) {
   room.tick++;
   for (const player of room.players.values()) {
     player.splitCooldown = Math.max(0, player.splitCooldown - 1);
     player.fireCooldown = Math.max(0, player.fireCooldown - 1);
+    if (player.splitRequested) {
+      splitPlayer(player);
+      player.splitRequested = false;
+    }
+    if (player.fireRequested) {
+      firePellet(player, room);
+      player.fireRequested = false;
+    }
     movePlayer(player, room);
   }
-  resolvePlayerCollisions(room);
+  updateBots(room);
+  updatePellets(room);
+  updateFoods(room);
+  updateViruses(room);
+  resolveEntityCollisions(room);
   applyMassDecay(room);
+  maintainBotCount(room);
 }
 
 wss.on("connection", (ws) => {
@@ -435,7 +871,7 @@ wss.on("connection", (ws) => {
       ws.send(JSON.stringify({
         type: "session",
         id: sessionId,
-        seed: room.seed,
+        seed: `fishfight:${room.mapId}:casual`,
         message: "Player registered."
       }));
       broadcastRoom(room);
@@ -445,8 +881,13 @@ wss.on("connection", (ws) => {
     if (packet.type === "action") {
       const player = playersById.get(sessionId);
       if (!player) return;
+      const room = rooms.get(meta.roomKey);
+      if (!room) return;
       if (packet.action === "split" && player.splitCooldown <= 0) {
         if (splitPlayer(player)) player.splitCooldown = 24;
+      }
+      if (packet.action === "fire" && player.fireCooldown <= 0) {
+        if (firePellet(player, room)) player.fireCooldown = 6;
       }
       return;
     }
