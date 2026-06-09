@@ -2679,6 +2679,8 @@ function draw(){
 /* -------------------------------------------------------------------------- */
 function loop(){
   if(running){
+    const liveMove=getMoveVector();
+    if(Math.hypot(liveMove.x,liveMove.y)>0.001)lastPlayerDir={x:liveMove.x,y:liveMove.y};
     if(currentRunMode==="open"&&multiplayerConnected){
       syncCasualServer();
     }else{
@@ -2707,6 +2709,8 @@ function syncCasualServer(){
   lastMultiplayerSync=now;
   const mainPart=getMainPart();
   if(!mainPart)return;
+  const move=getMoveVector();
+  if(Math.hypot(move.x,move.y)>0.001)lastPlayerDir={x:move.x,y:move.y};
   multiplayerSocket.send(JSON.stringify({
     type:"update",
     id:multiplayerSessionId,
@@ -2719,8 +2723,8 @@ function syncCasualServer(){
     color:player.color,
     nameColor:selectedNameColor,
     mapId:activeMapId,
-    dirX:lastPlayerDir.x,
-    dirY:lastPlayerDir.y,
+    dirX:move.x,
+    dirY:move.y,
     parts:playerParts.map(part=>({
       x:part.x,
       y:part.y,
