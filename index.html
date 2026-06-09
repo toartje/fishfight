@@ -1646,15 +1646,17 @@ function startGame(){
   player.mass=CONFIG.START_MASS;
   playerParts=[{x:player.x,y:player.y,mass:CONFIG.START_MASS,vx:0,vy:0,mergeTimer:0}];
 
-  for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
-  for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
-  for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
+  if(currentRunMode!=="open"){
+    for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
+    for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
+    for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
 
-  for(const virus of viruses){
-    if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
-      const safe=findSafeSpawn(12,240,900);
-      virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
-      virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
+    for(const virus of viruses){
+      if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
+        const safe=findSafeSpawn(12,240,900);
+        virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
+        virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
+      }
     }
   }
 }
@@ -1869,6 +1871,16 @@ function updatePlayer(){
 
 function splitPlayer(){
   if(!running)return;
+  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
+    multiplayerSocket.send(JSON.stringify({
+      type:"action",
+      action:"split",
+      id:multiplayerSessionId,
+      ts:Date.now()
+    }));
+    lastSplitTime=performance.now();
+    return;
+  }
   const now=performance.now();
   if(now-lastSplitTime<850||playerParts.length>=SPLIT_TUNING.MAX_PARTS)return;
 
@@ -1904,6 +1916,16 @@ function splitPlayer(){
 
 function firePellet(){
   if(!running)return;
+  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
+    multiplayerSocket.send(JSON.stringify({
+      type:"action",
+      action:"fire",
+      id:multiplayerSessionId,
+      ts:Date.now()
+    }));
+    lastFireTime=performance.now();
+    return;
+  }
   const now=performance.now();
   if(now-lastFireTime<280)return;
 
@@ -2657,14 +2679,18 @@ function draw(){
 /* -------------------------------------------------------------------------- */
 function loop(){
   if(running){
-    updatePlayer();
-    updateBots();
-    updatePellets();
-    checkFood();
-    checkBotCollisions();
-    checkViruses();
-    maintainBotCount();
-    applyMassDecay();
+    if(currentRunMode==="open"&&multiplayerConnected){
+      syncCasualServer();
+    }else{
+      updatePlayer();
+      updateBots();
+      updatePellets();
+      checkFood();
+      checkBotCollisions();
+      checkViruses();
+      maintainBotCount();
+      applyMassDecay();
+    }
     updateLeaderboard();
     updatePlayerStats();
     drawMinimap();
@@ -2695,6 +2721,14 @@ function syncCasualServer(){
     mapId:activeMapId,
     dirX:lastPlayerDir.x,
     dirY:lastPlayerDir.y,
+    parts:playerParts.map(part=>({
+      x:part.x,
+      y:part.y,
+      mass:part.mass,
+      vx:part.vx||0,
+      vy:part.vy||0,
+      mergeTimer:part.mergeTimer||0
+    })),
     ts:Date.now()
   })); 
 }
@@ -2814,8 +2848,39 @@ function connectCasualServer(){
       const packet=JSON.parse(event.data);
     if(packet.type==="state"){
       multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
-      remotePlayers=Array.isArray(packet.players)?packet.players:[];
+      if(packet.world&&Number.isFinite(Number(packet.world.width))&&Number.isFinite(Number(packet.world.height))){
+        world.width=Number(packet.world.width);
+        world.height=Number(packet.world.height);
+      }
+      if(Array.isArray(packet.foods))foods=packet.foods;
+      if(Array.isArray(packet.bots))bots=packet.bots;
+      if(Array.isArray(packet.viruses))viruses=packet.viruses;
+      if(Array.isArray(packet.pellets))pellets=packet.pellets;
+      const allPlayers=Array.isArray(packet.players)?packet.players:[];
+      remotePlayers=allPlayers.filter(remote=>remote&&remote.id&&remote.id!==multiplayerSessionId);
       updateRemoteRenderTargets(remotePlayers);
+      const self=allPlayers.find(remote=>remote&&remote.id===multiplayerSessionId);
+      if(self){
+        player.color=self.color||player.color;
+        playerName=self.name||playerName;
+        selectedNameColor=self.nameColor||selectedNameColor;
+        if(Array.isArray(self.parts)&&self.parts.length){
+          playerParts=self.parts.map(part=>({
+            x:Number(part.x)||player.x,
+            y:Number(part.y)||player.y,
+            mass:Number(part.mass)||CONFIG.START_MASS,
+            vx:Number(part.vx)||0,
+            vy:Number(part.vy)||0,
+            mergeTimer:Number(part.mergeTimer)||0
+          }));
+          updatePlayerCenter();
+        }else{
+          player.x=Number(self.x)||player.x;
+          player.y=Number(self.y)||player.y;
+          player.mass=Number(self.mass)||player.mass;
+          playerParts=[{x:player.x,y:player.y,mass:player.mass,vx:0,vy:0,mergeTimer:0}];
+        }
+      }
     }
     if(packet.type==="session"){
       multiplayerSessionId=packet.id||multiplayerSessionId;
