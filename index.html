@@ -808,6 +808,7 @@ let multiplayerConnected=false;
 let multiplayerConnecting=false;
 let multiplayerSessionId=null;
 let remotePlayers=[];
+let remotePlayerRenderState=new Map();
 let multiplayerPingMs=0;
 let lastMultiplayerSync=0;
 let multiplayerReconnectTimer=null;
@@ -1621,6 +1622,7 @@ function startGame(){
   kingFrameCounter=0;
   foodEatenThisGame=0;
   remotePlayers=[];
+  remotePlayerRenderState.clear();
 
   if(currentRunMode==="open"){
     connectCasualServer();
@@ -2602,20 +2604,36 @@ function draw(){
   }
   for(const remote of remotePlayers){
     if(remote.id===multiplayerSessionId)continue;
+    const render=remotePlayerRenderState.get(remote.id)||{
+      x:Number(remote.x)||0,
+      y:Number(remote.y)||0,
+      mass:Number(remote.mass)||CONFIG.START_MASS
+    };
+    render.x+=(Number(remote.x||render.x)-render.x)*0.18;
+    render.y+=(Number(remote.y||render.y)-render.y)*0.18;
+    render.mass+=(Number(remote.mass||render.mass)-render.mass)*0.12;
+    render.color=remote.color||render.color||"#38bdf8";
+    render.name=remote.name||render.name||"Guest";
+    render.nameColor=remote.nameColor||render.nameColor||"white";
+    render.skin=remote.skin||render.skin||null;
+    render.fishType=remote.fishType||render.fishType||selectedFishType;
+    render.dirX=Number(remote.dirX)||render.dirX||0;
+    render.dirY=Number(remote.dirY)||render.dirY||0;
+    remotePlayerRenderState.set(remote.id,render);
     drawPufferfish(
       ctx,
-      remote.x,
-      remote.y,
-      radiusFromMass(remote.mass||CONFIG.START_MASS),
-      remote.color||"#38bdf8",
-      remote.name||"Guest",
-      remote.skin||null,
-      remote.nameColor||"white",
+      render.x,
+      render.y,
+      radiusFromMass(render.mass||CONFIG.START_MASS),
+      render.color||"#38bdf8",
+      render.name||"Guest",
+      render.skin||null,
+      render.nameColor||"white",
       remote.leader||false,
       null,
-      remote.mass||CONFIG.START_MASS,
-      remote.dirX||0,
-      remote.fishType||selectedFishType
+      render.mass||CONFIG.START_MASS,
+      render.dirX||0,
+      render.fishType||selectedFishType
     );
   }
   for(const part of playerParts){
@@ -2671,7 +2689,34 @@ function syncCasualServer(){
     dirX:lastPlayerDir.x,
     dirY:lastPlayerDir.y,
     ts:Date.now()
-  }));
+  })); 
+}
+
+function updateRemoteRenderTargets(players){
+  const seen=new Set();
+  for(const remote of players){
+    if(!remote||!remote.id)continue;
+    const existing=remotePlayerRenderState.get(remote.id)||{
+      x:Number(remote.x)||0,
+      y:Number(remote.y)||0,
+      mass:Number(remote.mass)||CONFIG.START_MASS
+    };
+    existing.targetX=Number(remote.x)||0;
+    existing.targetY=Number(remote.y)||0;
+    existing.targetMass=Number(remote.mass)||CONFIG.START_MASS;
+    existing.name=remote.name||"Guest";
+    existing.color=remote.color||"#38bdf8";
+    existing.nameColor=remote.nameColor||"white";
+    existing.fishType=remote.fishType||selectedFishType;
+    existing.skin=remote.skin||null;
+    existing.dirX=Number(remote.dirX)||0;
+    existing.dirY=Number(remote.dirY)||0;
+    remotePlayerRenderState.set(remote.id,existing);
+    seen.add(remote.id);
+  }
+  for(const id of remotePlayerRenderState.keys()){
+    if(!seen.has(id))remotePlayerRenderState.delete(id);
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2705,6 +2750,7 @@ function closeCasualServer(intentional=true){
   multiplayerConnected=false;
   multiplayerSessionId=null;
   remotePlayers=[];
+  remotePlayerRenderState.clear();
   lastMultiplayerSync=0;
   if(multiplayerReconnectTimer){
     clearTimeout(multiplayerReconnectTimer);
@@ -2762,6 +2808,7 @@ function connectCasualServer(){
       if(packet.type==="state"){
         multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
         remotePlayers=Array.isArray(packet.players)?packet.players:[];
+        updateRemoteRenderTargets(remotePlayers);
         if(packet.world&&packet.world.width&&packet.world.height){
           world.width=packet.world.width;
           world.height=packet.world.height;
