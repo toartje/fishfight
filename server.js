@@ -933,22 +933,29 @@ setInterval(() => {
     }
   }
 
-  for (const ws of wss.clients) {
-    if (ws.isAlive === false) {
-      ws.terminate();
-      continue;
-    }
-    ws.isAlive = false;
-    try {
-      ws.ping();
-    } catch {
-      // Ignore ping failures; close handlers will clean up.
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    stepRoom(room);
+    if (!room.lastBroadcastAt || now - room.lastBroadcastAt >= 100) {
+      room.lastBroadcastAt = now;
+      broadcastRoom(room);
     }
   }
 
-  for (const room of rooms.values()) {
-    stepRoom(room);
-    broadcastRoom(room);
+  if (!server.lastPingAt || now - server.lastPingAt >= 25000) {
+    server.lastPingAt = now;
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        // Ignore ping failures; close handlers will clean up.
+      }
+    }
   }
 }, TICK_RATE_MS);
 
