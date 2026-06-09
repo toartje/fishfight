@@ -1043,8 +1043,29 @@ let persistentStats=loadPersistentStats();
 /* -------------------------------------------------------------------------- */
 /* Utility helpers                                                            */
 /* -------------------------------------------------------------------------- */
-function random(min,max){return Math.random()*(max-min)+min}
-function pick(list){return list[Math.floor(Math.random()*list.length)]}
+let worldSeedState=1;
+let worldSeedLabel="";
+function hashString(text){
+  let hash=2166136261;
+  for(let i=0;i<text.length;i++){
+    hash^=text.charCodeAt(i);
+    hash=Math.imul(hash,16777619);
+  }
+  return hash>>>0;
+}
+function setWorldSeed(seed){
+  worldSeedLabel=String(seed||"");
+  worldSeedState=hashString(worldSeedLabel)||1;
+}
+function seededRandom(){
+  worldSeedState=(Math.imul(worldSeedState,1664525)+1013904223)>>>0;
+  return worldSeedState/4294967296;
+}
+function worldRandom(){
+  return currentRunMode==="open"?seededRandom():Math.random();
+}
+function random(min,max){return worldRandom()*(max-min)+min}
+function pick(list){return list[Math.floor(worldRandom()*list.length)]}
 function radiusFromMass(mass){return Math.sqrt(mass)*5.7}
 function speedFromMass(mass){return Math.max(.92,10.5/Math.pow(mass,.33))}
 function getMutationStageMass(mass){
@@ -1091,7 +1112,7 @@ function vibrate(pattern){
 }
 function pickWeightedFood(){
   const total=FOOD_CHAIN.reduce((sum,item)=>sum+item.weight,0);
-  let roll=Math.random()*total;
+  let roll=worldRandom()*total;
   for(const item of FOOD_CHAIN){
     roll-=item.weight;
     if(roll<=0)return item;
@@ -1594,6 +1615,7 @@ function startGame(){
   currentRunMode=selectedPlayMode;
   if(!isMapUnlocked(activeMapId))setActiveMap("reef");
   else setActiveMap(activeMapId,false);
+  setWorldSeed(`fishfight:${activeMapId}:casual`);
   // ensure the starting mutation sprite for the selected fish is loaded on mobile
   const startMutIndex = getPlayerMutationIndex(CONFIG.START_MASS);
   const selSprites = PLAYER_VISUAL_SPRITES[selectedFishType];
@@ -1646,17 +1668,15 @@ function startGame(){
   player.mass=CONFIG.START_MASS;
   playerParts=[{x:player.x,y:player.y,mass:CONFIG.START_MASS,vx:0,vy:0,mergeTimer:0}];
 
-  if(currentRunMode!=="open"){
-    for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
-    for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
-    for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
+  for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
+  for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
+  for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
 
-    for(const virus of viruses){
-      if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
-        const safe=findSafeSpawn(12,240,900);
-        virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
-        virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
-      }
+  for(const virus of viruses){
+    if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
+      const safe=findSafeSpawn(12,240,900);
+      virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
+      virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
     }
   }
 }
@@ -1871,16 +1891,6 @@ function updatePlayer(){
 
 function splitPlayer(){
   if(!running)return;
-  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
-    multiplayerSocket.send(JSON.stringify({
-      type:"action",
-      action:"split",
-      id:multiplayerSessionId,
-      ts:Date.now()
-    }));
-    lastSplitTime=performance.now();
-    return;
-  }
   const now=performance.now();
   if(now-lastSplitTime<850||playerParts.length>=SPLIT_TUNING.MAX_PARTS)return;
 
@@ -1912,20 +1922,18 @@ function splitPlayer(){
   lastSplitTime=now;
   vibrate(45);
   updatePlayerCenter();
+  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
+    multiplayerSocket.send(JSON.stringify({
+      type:"action",
+      action:"split",
+      id:multiplayerSessionId,
+      ts:Date.now()
+    }));
+  }
 }
 
 function firePellet(){
   if(!running)return;
-  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
-    multiplayerSocket.send(JSON.stringify({
-      type:"action",
-      action:"fire",
-      id:multiplayerSessionId,
-      ts:Date.now()
-    }));
-    lastFireTime=performance.now();
-    return;
-  }
   const now=performance.now();
   if(now-lastFireTime<280)return;
 
@@ -1950,6 +1958,14 @@ function firePellet(){
   lastFireTime=now;
   vibrate(45);
   updatePlayerCenter();
+  if(currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN){
+    multiplayerSocket.send(JSON.stringify({
+      type:"action",
+      action:"fire",
+      id:multiplayerSessionId,
+      ts:Date.now()
+    }));
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2054,7 +2070,7 @@ function decideBotBehavior(bot){
     return;
   }
 
-  if(bot.changeTimer<=0||Math.random()<.25){
+  if(bot.changeTimer<=0||worldRandom()<.25){
     setBotDirection(bot,random(-1,1),random(-1,1),.35);
     bot.changeTimer=random(50,150);
   }else{
@@ -2681,7 +2697,15 @@ function loop(){
   if(running){
     const liveMove=getMoveVector();
     if(Math.hypot(liveMove.x,liveMove.y)>0.001)lastPlayerDir={x:liveMove.x,y:liveMove.y};
-    if(currentRunMode==="open"&&multiplayerConnected){
+    if(currentRunMode==="open"){
+      updatePlayer();
+      updateBots();
+      updatePellets();
+      checkFood();
+      checkBotCollisions();
+      checkViruses();
+      maintainBotCount();
+      applyMassDecay();
       syncCasualServer();
     }else{
       updatePlayer();
@@ -2696,7 +2720,6 @@ function loop(){
     updateLeaderboard();
     updatePlayerStats();
     drawMinimap();
-    syncCasualServer();
   }
   draw();
   requestAnimationFrame(loop);
@@ -2725,14 +2748,6 @@ function syncCasualServer(){
     mapId:activeMapId,
     dirX:move.x,
     dirY:move.y,
-    parts:playerParts.map(part=>({
-      x:part.x,
-      y:part.y,
-      mass:part.mass,
-      vx:part.vx||0,
-      vy:part.vy||0,
-      mergeTimer:part.mergeTimer||0
-    })),
     ts:Date.now()
   })); 
 }
@@ -2848,7 +2863,7 @@ function connectCasualServer(){
     multiplayerConnected=true;
     multiplayerSessionId=`p-${Math.random().toString(36).slice(2,10)}`;
     lastMultiplayerSync=0;
-    updateMultiplayerStatus("online","Verbonden. Als de server live state terugstuurt, zie je hier direct andere spelers.");
+    updateMultiplayerStatus("online","Verbonden. Alleen spelers worden gesynchroniseerd; de wereld draait lokaal.");
     multiplayerSocket.send(JSON.stringify({
       type:"join",
       id:multiplayerSessionId,
@@ -2873,91 +2888,8 @@ function connectCasualServer(){
       const packet=JSON.parse(event.data);
     if(packet.type==="state"){
       multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
-      if(packet.world&&Number.isFinite(Number(packet.world.width))&&Number.isFinite(Number(packet.world.height))){
-        world.width=Number(packet.world.width);
-        world.height=Number(packet.world.height);
-      }
-      if(Array.isArray(packet.foods)){
-        smoothArrayState(foods,packet.foods,(item)=>({
-          kind:item.kind||"shrimp",
-          x:Number(item.x)||0,
-          y:Number(item.y)||0,
-          r:Number(item.r)||5,
-          hitR:Number(item.hitR)||8,
-          points:Number(item.points)||1,
-          drawScale:Number(item.drawScale)||1
-        }),(item,incoming)=>{
-          item.kind=incoming.kind||item.kind;
-          item.x=lerp(item.x,toNumber(incoming.x,item.x),0.25);
-          item.y=lerp(item.y,toNumber(incoming.y,item.y),0.25);
-          item.r=Number(incoming.r)||item.r;
-          item.hitR=Number(incoming.hitR)||item.hitR;
-          item.points=Number(incoming.points)||item.points;
-          item.drawScale=Number(incoming.drawScale)||item.drawScale;
-        });
-      }
-      if(Array.isArray(packet.bots)){
-        smoothArrayState(bots,packet.bots,(item)=>({
-          id:item.id||`bot-${Math.random().toString(36).slice(2,10)}`,
-          name:item.name||"Bot",
-          x:Number(item.x)||0,
-          y:Number(item.y)||0,
-          mass:Number(item.mass)||CONFIG.START_MASS,
-          color:item.color||"#38bdf8",
-          fishType:item.fishType||selectedFishType,
-          dx:Number(item.dx)||0,
-          dy:Number(item.dy)||0
-        }),(item,incoming)=>{
-          item.id=incoming.id||item.id;
-          item.name=incoming.name||item.name;
-          item.x=lerp(item.x,toNumber(incoming.x,item.x),0.22);
-          item.y=lerp(item.y,toNumber(incoming.y,item.y),0.22);
-          item.mass=lerp(item.mass,toNumber(incoming.mass,item.mass),0.22);
-          item.color=incoming.color||item.color;
-          item.fishType=incoming.fishType||item.fishType;
-          item.dx=Number(incoming.dx)||item.dx||0;
-          item.dy=Number(incoming.dy)||item.dy||0;
-        });
-      }
-      if(Array.isArray(packet.viruses)){
-        smoothArrayState(viruses,packet.viruses,(item)=>({
-          kind:item.kind||"virus",
-          x:Number(item.x)||0,
-          y:Number(item.y)||0,
-          mass:Number(item.mass)||CONFIG.VIRUS_MASS,
-          r:Number(item.r)||radiusFromMass(CONFIG.VIRUS_MASS),
-          color:item.color||"#22c55e",
-          glow:item.glow||"#bbf7d0",
-          eaten:Number(item.eaten)||0
-        }),(item,incoming)=>{
-          item.kind=incoming.kind||item.kind;
-          item.x=lerp(item.x,toNumber(incoming.x,item.x),0.22);
-          item.y=lerp(item.y,toNumber(incoming.y,item.y),0.22);
-          item.mass=lerp(item.mass,toNumber(incoming.mass,item.mass),0.2);
-          item.r=Number(incoming.r)||item.r;
-          item.color=incoming.color||item.color;
-          item.glow=incoming.glow||item.glow;
-          item.eaten=Number(incoming.eaten)||item.eaten;
-        });
-      }
-      if(Array.isArray(packet.pellets)){
-        smoothArrayState(pellets,packet.pellets,(item)=>({
-          x:Number(item.x)||0,
-          y:Number(item.y)||0,
-          vx:Number(item.vx)||0,
-          vy:Number(item.vy)||0,
-          mass:Number(item.mass)||3,
-          life:Number(item.life)||0,
-          color:item.color||"#facc15"
-        }),(item,incoming)=>{
-          item.x=lerp(item.x,toNumber(incoming.x,item.x),0.3);
-          item.y=lerp(item.y,toNumber(incoming.y,item.y),0.3);
-          item.vx=Number(incoming.vx)||item.vx||0;
-          item.vy=Number(incoming.vy)||item.vy||0;
-          item.mass=Number(incoming.mass)||item.mass;
-          item.life=Number(incoming.life)||item.life;
-          item.color=incoming.color||item.color;
-        });
+      if(packet.seed&&currentRunMode==="open"){
+        setWorldSeed(packet.seed);
       }
       const allPlayers=Array.isArray(packet.players)?packet.players:[];
       remotePlayers=allPlayers.filter(remote=>remote&&remote.id&&remote.id!==multiplayerSessionId);
@@ -2972,33 +2904,13 @@ function connectCasualServer(){
         player.color=self.color||player.color;
         playerName=self.name||playerName;
         selectedNameColor=self.nameColor||selectedNameColor;
-        if(Array.isArray(self.parts)&&self.parts.length){
-          smoothArrayState(playerParts,self.parts,(part)=>({
-            x:Number(part.x)||player.x,
-            y:Number(part.y)||player.y,
-            mass:Number(part.mass)||CONFIG.START_MASS,
-            vx:Number(part.vx)||0,
-            vy:Number(part.vy)||0,
-            mergeTimer:Number(part.mergeTimer)||0
-          }),(part,incoming)=>{
-            part.x=lerp(part.x,toNumber(incoming.x,part.x),0.28);
-            part.y=lerp(part.y,toNumber(incoming.y,part.y),0.28);
-            part.mass=lerp(part.mass,toNumber(incoming.mass,part.mass),0.24);
-            part.vx=Number(incoming.vx)||part.vx||0;
-            part.vy=Number(incoming.vy)||part.vy||0;
-            part.mergeTimer=Number(incoming.mergeTimer)||part.mergeTimer||0;
-          });
-          updatePlayerCenter();
-        }else{
-          player.x=Number(self.x)||player.x;
-          player.y=Number(self.y)||player.y;
-          player.mass=Number(self.mass)||player.mass;
-          playerParts=[{x:player.x,y:player.y,mass:player.mass,vx:0,vy:0,mergeTimer:0}];
-        }
       }
     }
     if(packet.type==="session"){
       multiplayerSessionId=packet.id||multiplayerSessionId;
+      if(packet.seed&&currentRunMode==="open"){
+        setWorldSeed(packet.seed);
+      }
     }
     updateMultiplayerStatus("online",packet.message||`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`);
   }catch(err){}
