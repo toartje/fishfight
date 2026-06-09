@@ -813,7 +813,6 @@ let multiplayerPingMs=0;
 let lastMultiplayerSync=0;
 let multiplayerReconnectTimer=null;
 let multiplayerIntentionalClose=false;
-let multiplayerSharedWorldActive=false;
 const MULTIPLAYER_SERVER_KEY="fishfight_server_url_v1";
 const DEFAULT_SERVER_URL="wss://fishfight.onrender.com";
 
@@ -1046,28 +1045,21 @@ let persistentStats=loadPersistentStats();
 /* -------------------------------------------------------------------------- */
 function random(min,max){return Math.random()*(max-min)+min}
 function pick(list){return list[Math.floor(Math.random()*list.length)]}
-function radiusFromMass(mass){return Math.sqrt(Math.max(1,mass))*5.0}
-function speedFromMass(mass){return Math.max(0.58,12/Math.pow(Math.max(1,mass),.39))}
-function getMassDecayPerSecond(mass){
-  if(mass<=100)return 0;
-  if(mass<=500)return 0.001;
-  if(mass<=1000)return 0.002;
-  if(mass<=2500)return 0.0035;
-  if(mass<=5000)return 0.005;
-  return 0.0075;
-}
+function radiusFromMass(mass){return Math.sqrt(mass)*5.7}
+function speedFromMass(mass){return Math.max(.92,10.5/Math.pow(mass,.33))}
 function getMutationStageMass(mass){
   const index=getPlayerMutationIndex(mass);
   return PLAYER_MUTATIONS[index]?.mass||CONFIG.START_MASS;
 }
 function getMutationCameraZoom(mass){
   const stops=[
-    {mass:0,zoom:1.08},
-    {mass:100,zoom:1.00},
-    {mass:500,zoom:0.90},
-    {mass:1000,zoom:0.82},
-    {mass:2500,zoom:0.70},
-    {mass:5000,zoom:0.60}
+    {mass:0,zoom:1.00},
+    {mass:100,zoom:0.97},
+    {mass:250,zoom:0.92},
+    {mass:500,zoom:0.86},
+    {mass:1000,zoom:0.80},
+    {mass:2500,zoom:0.73},
+    {mass:5000,zoom:0.66}
   ];
   if(mass<=stops[0].mass)return stops[0].zoom;
   for(let i=0;i<stops.length-1;i++){
@@ -1079,6 +1071,14 @@ function getMutationCameraZoom(mass){
     }
   }
   return stops[stops.length-1].zoom;
+}
+function getMassDecayPerSecond(mass){
+  if(mass<=100)return 0;
+  if(mass<=500)return mass*0.001;
+  if(mass<=1000)return mass*0.002;
+  if(mass<=2500)return mass*0.0035;
+  if(mass<=5000)return mass*0.005;
+  return mass*0.0075;
 }
 function formatTime(seconds){
   const total=Math.floor(seconds);
@@ -1633,16 +1633,11 @@ function startGame(){
   foodEatenThisGame=0;
   remotePlayers=[];
   remotePlayerRenderState.clear();
-  multiplayerSharedWorldActive=false;
-
   if(currentRunMode==="open"){
     connectCasualServer();
   }else{
     closeCasualServer();
     updateMultiplayerStatus("offline");
-    for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
-    for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
-    for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
   }
 
   const spawn=findSafeSpawn();
@@ -1651,13 +1646,15 @@ function startGame(){
   player.mass=CONFIG.START_MASS;
   playerParts=[{x:player.x,y:player.y,mass:CONFIG.START_MASS,vx:0,vy:0,mergeTimer:0}];
 
-  if(currentRunMode!=="open"){
-    for(const virus of viruses){
-      if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
-        const safe=findSafeSpawn(12,240,900);
-        virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
-        virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
-      }
+  for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
+  for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
+  for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
+
+  for(const virus of viruses){
+    if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
+      const safe=findSafeSpawn(12,240,900);
+      virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
+      virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
     }
   }
 }
@@ -2228,12 +2225,12 @@ function checkViruses(){
 
 function applyMassDecay(){
   for(const part of playerParts){
-    const decay=getMassDecayPerSecond(part.mass);
-    if(decay>0)part.mass=Math.max(CONFIG.START_MASS,part.mass-part.mass*decay/60);
+    const decay=getMassDecayPerSecond(part.mass)/60;
+    if(decay>0)part.mass=Math.max(CONFIG.START_MASS,part.mass-decay);
   }
   for(const bot of bots){
-    const decay=getMassDecayPerSecond(bot.mass);
-    if(decay>0)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-bot.mass*decay/60);
+    const decay=getMassDecayPerSecond(bot.mass)/60;
+    if(decay>0)bot.mass=Math.max(CONFIG.START_MASS,bot.mass-decay);
   }
   updatePlayerCenter();
 }
@@ -2582,9 +2579,9 @@ function drawMinimap(){
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const targetCamera=getCamera();
-  cameraState.x+=(targetCamera.x-cameraState.x)*.1;
-  cameraState.y+=(targetCamera.y-cameraState.y)*.1;
-  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.075;
+  cameraState.x+=(targetCamera.x-cameraState.x)*.12;
+  cameraState.y+=(targetCamera.y-cameraState.y)*.12;
+  cameraState.zoom+=(targetCamera.zoom-cameraState.zoom)*.095;
   if(Math.abs(targetCamera.x-cameraState.x)<.05)cameraState.x=targetCamera.x;
   if(Math.abs(targetCamera.y-cameraState.y)<.05)cameraState.y=targetCamera.y;
   if(Math.abs(targetCamera.zoom-cameraState.zoom)<.001)cameraState.zoom=targetCamera.zoom;
@@ -2661,16 +2658,12 @@ function draw(){
 function loop(){
   if(running){
     updatePlayer();
-    if(!isCasualOnline()){
-      updateBots();
-      updatePellets();
-      checkFood();
-      checkBotCollisions();
-      checkViruses();
-      maintainBotCount();
-    }else{
-      updatePellets();
-    }
+    updateBots();
+    updatePellets();
+    checkFood();
+    checkBotCollisions();
+    checkViruses();
+    maintainBotCount();
     applyMassDecay();
     updateLeaderboard();
     updatePlayerStats();
@@ -2733,21 +2726,6 @@ function updateRemoteRenderTargets(players){
   }
 }
 
-function isCasualOnline(){
-  return currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN;
-}
-
-function applyCasualWorldState(packet){
-  if(packet.world&&packet.world.width&&packet.world.height){
-    world.width=packet.world.width;
-    world.height=packet.world.height;
-  }
-  if(Array.isArray(packet.foods))foods=packet.foods;
-  if(Array.isArray(packet.bots))bots=packet.bots;
-  if(Array.isArray(packet.viruses))viruses=packet.viruses;
-  multiplayerSharedWorldActive=true;
-}
-
 /* -------------------------------------------------------------------------- */
 /* Casual online multiplayer                                                  */
 /* -------------------------------------------------------------------------- */
@@ -2778,7 +2756,6 @@ function closeCasualServer(intentional=true){
   multiplayerConnecting=false;
   multiplayerConnected=false;
   multiplayerSessionId=null;
-  multiplayerSharedWorldActive=false;
   remotePlayers=[];
   remotePlayerRenderState.clear();
   lastMultiplayerSync=0;
@@ -2835,31 +2812,13 @@ function connectCasualServer(){
   multiplayerSocket.onmessage=event=>{
     try{
       const packet=JSON.parse(event.data);
-      if(packet.type==="state"){
-        multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
-        remotePlayers=Array.isArray(packet.players)?packet.players:[];
-        updateRemoteRenderTargets(remotePlayers);
-        applyCasualWorldState(packet);
-        const myState=remotePlayers.find(remote=>remote.id===multiplayerSessionId);
-        if(myState&&playerParts.length){
-          player.x=Number(myState.x)||player.x;
-          player.y=Number(myState.y)||player.y;
-          player.mass=Number(myState.mass)||player.mass;
-          playerParts[0].x=player.x;
-          playerParts[0].y=player.y;
-          playerParts[0].mass=player.mass;
-        }
-      }
+    if(packet.type==="state"){
+      multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
+      remotePlayers=Array.isArray(packet.players)?packet.players:[];
+      updateRemoteRenderTargets(remotePlayers);
+    }
     if(packet.type==="session"){
       multiplayerSessionId=packet.id||multiplayerSessionId;
-    }
-    if(packet.type==="eliminated"){
-      if(running&&currentRunMode==="open"){
-        updateMultiplayerStatus("offline","Je bent opgegeten door een andere speler.");
-        closeCasualServer(true);
-        gameOver();
-        return;
-      }
     }
     updateMultiplayerStatus("online",packet.message||`Verbonden met de casual server. Ping: ${multiplayerPingMs||"-"} ms.`);
   }catch(err){}
