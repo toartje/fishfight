@@ -813,6 +813,7 @@ let multiplayerPingMs=0;
 let lastMultiplayerSync=0;
 let multiplayerReconnectTimer=null;
 let multiplayerIntentionalClose=false;
+let multiplayerSharedWorldActive=false;
 const MULTIPLAYER_SERVER_KEY="fishfight_server_url_v1";
 const DEFAULT_SERVER_URL="wss://fishfight.onrender.com";
 
@@ -1623,17 +1624,17 @@ function startGame(){
   foodEatenThisGame=0;
   remotePlayers=[];
   remotePlayerRenderState.clear();
+  multiplayerSharedWorldActive=false;
 
   if(currentRunMode==="open"){
     connectCasualServer();
   }else{
     closeCasualServer();
     updateMultiplayerStatus("offline");
+    for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
+    for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
+    for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
   }
-
-  for(let i=0;i<CONFIG.FOOD_COUNT;i++)foods.push(createFood());
-  for(let i=0;i<CONFIG.BOT_COUNT;i++)bots.push(createBot());
-  for(let i=0;i<CONFIG.VIRUS_COUNT;i++)viruses.push(createVirus());
 
   const spawn=findSafeSpawn();
   player.x=spawn.x;
@@ -1641,11 +1642,13 @@ function startGame(){
   player.mass=CONFIG.START_MASS;
   playerParts=[{x:player.x,y:player.y,mass:CONFIG.START_MASS,vx:0,vy:0,mergeTimer:0}];
 
-  for(const virus of viruses){
-    if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
-      const safe=findSafeSpawn(12,240,900);
-      virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
-      virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
+  if(currentRunMode!=="open"){
+    for(const virus of viruses){
+      if(Math.hypot(virus.x-player.x,virus.y-player.y)<900){
+        const safe=findSafeSpawn(12,240,900);
+        virus.x=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.width-HAZARD_RESPAWN_MARGIN,safe.x+random(-900,900)));
+        virus.y=Math.max(HAZARD_RESPAWN_MARGIN,Math.min(world.height-HAZARD_RESPAWN_MARGIN,safe.y+random(-900,900)));
+      }
     }
   }
 }
@@ -2651,13 +2654,17 @@ function draw(){
 function loop(){
   if(running){
     updatePlayer();
-    updateBots();
-    updatePellets();
-    checkFood();
-    checkBotCollisions();
-    checkViruses();
+    if(!isCasualOnline()){
+      updateBots();
+      updatePellets();
+      checkFood();
+      checkBotCollisions();
+      checkViruses();
+      maintainBotCount();
+    }else{
+      updatePellets();
+    }
     applyMassDecay();
-    maintainBotCount();
     updateLeaderboard();
     updatePlayerStats();
     drawMinimap();
@@ -2719,6 +2726,21 @@ function updateRemoteRenderTargets(players){
   }
 }
 
+function isCasualOnline(){
+  return currentRunMode==="open"&&multiplayerConnected&&multiplayerSocket&&multiplayerSocket.readyState===WebSocket.OPEN;
+}
+
+function applyCasualWorldState(packet){
+  if(packet.world&&packet.world.width&&packet.world.height){
+    world.width=packet.world.width;
+    world.height=packet.world.height;
+  }
+  if(Array.isArray(packet.foods))foods=packet.foods;
+  if(Array.isArray(packet.bots))bots=packet.bots;
+  if(Array.isArray(packet.viruses))viruses=packet.viruses;
+  multiplayerSharedWorldActive=true;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Casual online multiplayer                                                  */
 /* -------------------------------------------------------------------------- */
@@ -2749,6 +2771,7 @@ function closeCasualServer(intentional=true){
   multiplayerConnecting=false;
   multiplayerConnected=false;
   multiplayerSessionId=null;
+  multiplayerSharedWorldActive=false;
   remotePlayers=[];
   remotePlayerRenderState.clear();
   lastMultiplayerSync=0;
@@ -2809,9 +2832,15 @@ function connectCasualServer(){
         multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
         remotePlayers=Array.isArray(packet.players)?packet.players:[];
         updateRemoteRenderTargets(remotePlayers);
-        if(packet.world&&packet.world.width&&packet.world.height){
-          world.width=packet.world.width;
-          world.height=packet.world.height;
+        applyCasualWorldState(packet);
+        const myState=remotePlayers.find(remote=>remote.id===multiplayerSessionId);
+        if(myState&&playerParts.length){
+          player.x=Number(myState.x)||player.x;
+          player.y=Number(myState.y)||player.y;
+          player.mass=Number(myState.mass)||player.mass;
+          playerParts[0].x=player.x;
+          playerParts[0].y=player.y;
+          playerParts[0].mass=player.mass;
         }
       }
       if(packet.type==="session"){
