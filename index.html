@@ -2889,6 +2889,9 @@ function connectCasualServer(){
       const packet=JSON.parse(event.data);
     if(packet.type==="state"){
       multiplayerPingMs=typeof packet.pingMs==="number"?packet.pingMs:multiplayerPingMs;
+      if(packet.mapId&&currentRunMode==="open"&&packet.mapId!==activeMapId){
+        setActiveMap(packet.mapId,false);
+      }
       if(packet.world&&Number.isFinite(Number(packet.world.width))&&Number.isFinite(Number(packet.world.height))){
         world.width=Number(packet.world.width);
         world.height=Number(packet.world.height);

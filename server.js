@@ -85,7 +85,7 @@ function normalize(dx, dy) {
 }
 
 function getRoomKey(mode, mapId) {
-  return `${mode || "casual"}:${mapId || "reef"}`;
+  return `${mode || "casual"}`;
 }
 
 function createFood(room) {
